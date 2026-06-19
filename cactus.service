@@ -1,0 +1,13 @@
+[Unit]
+Description=Cactus MTC CA Server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/cactus -config /etc/cactus/config.json
+Restart=on-failure
+RestartSec=5
+WorkingDirectory=/var/lib/cactus
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,62 @@
+{
+  "acme": {
+    "challenge_mode": "auto-pass",
+    "external_url": "http://localhost:14000",
+    "listen": ":14000"
+  },
+  "ca_cosigner": {
+    "algorithm": "mldsa-44",
+    "id": "44363.47.1.99",
+    "seed_path": "keys/ca-cosigner.seed"
+  },
+  "ca_cosigner_quorum": {
+    "best_effort_after_minimum": false,
+    "min_signatures": 1,
+    "mirror_retry_deadline_ms": 8000,
+    "mirrors": [
+      {
+        "algorithm": "mldsa-44",
+        "id": "44363.47.2.1",
+        "public_key_path": "keys/witness-cosigner.pem",
+        "url": "https://mirror1.test.mtcs.dev/sign-subtree"
+      }
+    ],
+    "request_timeout_ms": 2000
+  },
+  "data_dir": "/var/lib/cactus",
+  "landmarks": {
+    "max_cert_lifetime_ms": 3600000,
+    "time_between_landmarks_ms": 60000
+  },
+  "log": {
+    "checkpoint_period_ms": 1000,
+    "hash": "sha256",
+    "number": 1,
+    "pool_size": 256,
+    "shortname": "cactus-test"
+  },
+  "log_level": "info",
+  "metrics": {
+    "listen": "127.0.0.1:14090"
+  },
+  "mirror": {
+    "algorithm": "mldsa-44",
+    "cosigner_id": "44363.47.2.1",
+    "enabled": true,
+    "require_ca_signature_on_subtree": true,
+    "seed_path": "keys/witness-cosigner.seed",
+    "sign_subtree_listen": "127.0.0.1:14081",
+    "sign_subtree_path": "/sign-subtree",
+    "upstream": {
+      "ca_cosigner_id": "44363.47.1.99",
+      "ca_cosigner_key_path": "keys/ca-cosigner.pem",
+      "log_id": "44363.47.1.99.0.1",
+      "poll_interval_ms": 250,
+      "tile_url": "http://127.0.0.1:14080/1"
+    }
+  },
+  "monitoring": {
+    "external_url": "http://localhost:14080",
+    "listen": ":14080"
+  }
+}
