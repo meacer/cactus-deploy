@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html>
+<head><title>Cactus MTC Test CA</title></head>
+<body>
+<h1>Cactus MTC Test CA</h1>
+<table>
+  <tr><th>Service</th><th>IP</th><th>Hostname</th></tr>
+  <tr><td>CA 1</td>     <td><a class="ip" data-port="14080"></a></td><td><a href="http://ca1.test.mtcs.dev">ca1.test.mtcs.dev</a></td></tr>
+  <tr><td>CA 2</td>     <td><a class="ip" data-port="15080"></a></td><td><a href="http://ca2.test.mtcs.dev">ca2.test.mtcs.dev</a></td></tr>
+  <tr><td>Mirror 1</td> <td><a class="ip" data-port="14081"></a></td><td><a href="http://mirror1.test.mtcs.dev">mirror1.test.mtcs.dev</a></td></tr>
+  <tr><td>Mirror 2</td> <td><a class="ip" data-port="15081"></a></td><td><a href="http://mirror2.test.mtcs.dev">mirror2.test.mtcs.dev</a></td></tr>
+</table>
+<script>
+var h = window.location.hostname;
+document.querySelectorAll("a.ip").forEach(function(a) {
+  var url = "http://" + h + ":" + a.dataset.port;
+  a.href = url;
+  a.textContent = url;
+});
+</script>
+</body>
+</html>
