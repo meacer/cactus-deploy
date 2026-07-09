@@ -12,6 +12,7 @@ VM directly.
 export CACTUS_PROJECT=myproject    # GCP project ID — add to your shell profile
 export CACTUS_VM=https-testing     # VM name (default: https-testing)
 export CACTUS_ZONE=us-central1-a   # VM zone (default: us-central1-a)
+export CACTUS_SRC=~/src/cactus     # Optional: path to existing cactus repo (default: auto-clones meacer/cactus)
 ```
 
 This repo requires Go 1.27+. Until a release is available, use `gotip`:
@@ -54,8 +55,9 @@ make deploy                # deploys using keys from GCP Secret Manager
 ## Other commands (local)
 
 ```sh
-make          # build the Linux binary without deploying
-make clean    # remove cloned source and built binary
+make                              # build the Linux binary without deploying
+make CACTUS_SRC=~/src/cactus      # build using an existing local cactus repo
+make clean                        # remove cloned source (.cactus-src) and built binary
 ```
 
 ## Open firewall ports (GCP, one-time)
