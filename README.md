@@ -22,7 +22,7 @@ export PATH="$PATH:$HOME/go/bin"
 gotip download
 ```
 
-Generate CA + witness keys (only needed once, or after `./cactus-reset.sh`):
+Generate CA + witness keys (only needed when creating new keys, e.g., after `./cactus-reset.sh`):
 
 ```sh
 ./cactus-reset.sh
@@ -37,14 +37,18 @@ gcloud compute instances create $CACTUS_VM \
     --machine-type=e2-micro \
     --image-family=debian-12 --image-project=debian-cloud
 
-# Deploy (local):
+# Deploy (local, downloads keys from GCP Secret Manager by default):
 make setup
+
+# To deploy using local keys instead:
+./deploy.sh --setup --local-keys
 ```
 
 ## Subsequent deploys (local)
 
 ```sh
-make deploy
+make deploy                # deploys using keys from GCP Secret Manager
+./deploy.sh --local-keys   # deploys using local keys in keys/ directory
 ```
 
 ## Other commands (local)

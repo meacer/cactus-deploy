@@ -1,9 +1,12 @@
 #!/usr/bin/env bash
 # Build cactus on Mac, push binary + configs to GCP VM, restart services.
 # For first-time VM setup (installs packages), use --setup.
+# By default, downloads CA and witness keys from GCP Secret Manager.
+# To use local keys in keys/, use --local-keys.
 # Usage:
-#   ./deploy.sh            # deploy cactus binary + config
-#   ./deploy.sh --setup    # first deploy on a fresh VM (installs packages, Apache HTTP only)
+#   ./deploy.sh                # deploy cactus binary + config (keys from Secret Manager)
+#   ./deploy.sh --setup        # first deploy on a fresh VM
+#   ./deploy.sh --local-keys   # deploy using local keys from keys/ directory
 set -euo pipefail
 
 VM="${CACTUS_VM:-https-testing}"
@@ -12,7 +15,26 @@ PROJECT="${CACTUS_PROJECT:?Set CACTUS_PROJECT (e.g. export CACTUS_PROJECT=myproj
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 STAGING="/tmp/cactus-deploy"
 
-if [[ "${1:-}" == "--setup" ]]; then
+SETUP=false
+LOCAL_KEYS=false
+
+for arg in "$@"; do
+    case "$arg" in
+        --setup)
+            SETUP=true
+            ;;
+        --local|--local-keys)
+            LOCAL_KEYS=true
+            ;;
+        *)
+            echo "Unknown argument: $arg" >&2
+            echo "Usage: $0 [--setup] [--local-keys]" >&2
+            exit 1
+            ;;
+    esac
+done
+
+if [[ "$SETUP" == "true" ]]; then
     echo "==> Running first-time VM setup (Apache, no SSL)..."
     gcloud compute scp \
         "$DEPLOY_DIR/setup-vm.sh" \
@@ -21,6 +43,21 @@ if [[ "${1:-}" == "--setup" ]]; then
         --zone="$ZONE" --project="$PROJECT"
     gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- \
         sudo bash /tmp/setup-vm.sh
+fi
+
+if [[ "$LOCAL_KEYS" == "true" ]]; then
+    echo "==> Using local keys from $DEPLOY_DIR/keys..."
+    KEYS_DIR="$DEPLOY_DIR/keys"
+else
+    echo "==> Downloading keys from GCP Secret Manager..."
+    TMP_KEYS="$(mktemp -d)"
+    trap '[[ -n "${TMP_KEYS:-}" ]] && rm -rf "$TMP_KEYS"' EXIT
+    gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" > "$TMP_KEYS/ca-cosigner.seed"
+    gcloud secrets versions access latest --secret=ca1-public-key --project="$PROJECT" > "$TMP_KEYS/ca-cosigner.pem"
+    gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" > "$TMP_KEYS/witness-cosigner.seed"
+    gcloud secrets versions access latest --secret=mirror1-public-key --project="$PROJECT" > "$TMP_KEYS/witness-cosigner.pem"
+    chmod 600 "$TMP_KEYS/"*.seed
+    KEYS_DIR="$TMP_KEYS"
 fi
 
 echo "==> Copying cactus files to VM..."
@@ -35,8 +72,8 @@ gcloud compute scp \
     "$VM:$STAGING/" \
     --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp \
-    "$DEPLOY_DIR/keys/"*.pem \
-    "$DEPLOY_DIR/keys/"*.seed \
+    "$KEYS_DIR/"*.pem \
+    "$KEYS_DIR/"*.seed \
     "$VM:$STAGING/keys/" \
     --zone="$ZONE" --project="$PROJECT"
 
