@@ -16,7 +16,7 @@
     "mirrors": [
       {
         "algorithm": "mldsa-44",
-        "id": "11129.11.98.1",
+        "id": "11129.11.99.2",
         "public_key_path": "keys/witness-cosigner.pem",
         "url": "https://mirror1.test.mtcs.dev/sign-subtree"
       }
@@ -41,7 +41,7 @@
   },
   "mirror": {
     "algorithm": "mldsa-44",
-    "cosigner_id": "11129.11.98.1",
+    "cosigner_id": "11129.11.99.2",
     "enabled": true,
     "require_ca_signature_on_subtree": true,
     "seed_path": "keys/witness-cosigner.seed",
