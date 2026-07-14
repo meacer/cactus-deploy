@@ -69,8 +69,8 @@ if [[ "$LOCAL_KEYS" == "true" ]]; then
     echo "==> Using local keys from $DEPLOY_DIR/keys..."
     KEYS_DIR="$DEPLOY_DIR/keys"
 else
-    echo "==> Downloading keys from GCP Secret Manager to $TMP_KEYS..."
     TMP_KEYS="$(mktemp -d)"
+    echo "==> Downloading keys from GCP Secret Manager to $TMP_KEYS..."
     trap '[[ -n "${TMP_KEYS:-}" ]] && rm -rf "$TMP_KEYS"' EXIT
     gcloud secrets versions access latest --secret=ca1-cosigner-seed      --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.seed"
     gcloud secrets versions access latest --secret=ca1-public-key         --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.pem"
