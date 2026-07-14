@@ -96,10 +96,10 @@ else
     TMP_KEYS="$(mktemp -d)"
     echo "==> Downloading keys from GCP Secret Manager to $TMP_KEYS..."
     trap '[[ -n "${TMP_KEYS:-}" ]] && rm -rf "$TMP_KEYS"' EXIT
-    gcloud secrets versions access latest --secret=ca1-cosigner-seed      --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.seed"
-    gcloud secrets versions access latest --secret=ca1-public-key         --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.pem"
-    gcloud secrets versions access latest --secret=mirror1-cosigner-seed  --project="$PROJECT" --out-file="$TMP_KEYS/witness-cosigner.seed"
-    gcloud secrets versions access latest --secret=mirror1-public-key     --project="$PROJECT" --out-file="$TMP_KEYS/witness-cosigner.pem"
+    gcloud secrets versions access latest --secret=ca1-cosigner-seed      --project="$PROJECT" --out-file="$TMP_KEYS/ca1-cosigner.seed"
+    gcloud secrets versions access latest --secret=ca1-public-key         --project="$PROJECT" --out-file="$TMP_KEYS/ca1-public.pem"
+    gcloud secrets versions access latest --secret=mirror1-cosigner-seed  --project="$PROJECT" --out-file="$TMP_KEYS/mirror1-cosigner.seed"
+    gcloud secrets versions access latest --secret=mirror1-public-key     --project="$PROJECT" --out-file="$TMP_KEYS/mirror1-public.pem"
     chmod 600 "$TMP_KEYS/"*.seed
     KEYS_DIR="$TMP_KEYS"
 fi

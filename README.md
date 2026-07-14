@@ -64,8 +64,9 @@ make deploy
 ## Other commands (local)
 
 ```sh
-make                              # build the Linux binary without deploying
-make CACTUS_SRC=~/src/cactus      # build using an existing local cactus repo
+make                              # build the Linux binary without deploying (clones/builds main)
+make CACTUS_BRANCH=my-branch      # build from a different branch of the auto-cloned repo
+make CACTUS_SRC=~/src/cactus      # build using an existing local cactus repo (branch left as-is)
 make clean                        # remove cloned source (.cactus-src) and built binary
 ```
 

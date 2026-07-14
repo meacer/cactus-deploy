@@ -7,18 +7,19 @@
   "ca_cosigner": {
     "algorithm": "mldsa-44",
     "id": "11129.11.99.1",
-    "seed_path": "keys/ca-cosigner.seed"
+    "seed_path": "keys/ca1-cosigner.seed"
   },
   "ca_cosigner_quorum": {
     "best_effort_after_minimum": false,
+    "checkpoint_cosignatures": false,
     "min_signatures": 1,
     "mirror_retry_deadline_ms": 8000,
     "mirrors": [
       {
         "algorithm": "mldsa-44",
         "id": "11129.11.99.2",
-        "public_key_path": "keys/witness-cosigner.pem",
-        "url": "https://mirror1.test.mtcs.dev/sign-subtree"
+        "public_key_path": "keys/mirror1-public.pem",
+        "url": "http://127.0.0.1:14081/sign-subtree"
       }
     ],
     "request_timeout_ms": 2000
@@ -41,15 +42,16 @@
   },
   "mirror": {
     "algorithm": "mldsa-44",
+    "checkpoint_cosignatures": false,
     "cosigner_id": "11129.11.99.2",
     "enabled": true,
     "require_ca_signature_on_subtree": true,
-    "seed_path": "keys/witness-cosigner.seed",
+    "seed_path": "keys/mirror1-cosigner.seed",
     "sign_subtree_listen": ":14081",
     "sign_subtree_path": "/sign-subtree",
     "upstream": {
       "ca_cosigner_id": "11129.11.99.1",
-      "ca_cosigner_key_path": "keys/ca-cosigner.pem",
+      "ca_cosigner_key_path": "keys/ca1-public.pem",
       "log_id": "11129.11.99.1.0.1",
       "poll_interval_ms": 250,
       "tile_url": "http://127.0.0.1:14080/1"
