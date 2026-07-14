@@ -3,20 +3,25 @@
 # For first-time VM setup (installs packages), use --setup.
 # By default, downloads CA and witness keys from GCP Secret Manager.
 # To use local keys in keys/, use --local-keys.
+# VM/zone/project default to the values in config.sh; override with --vm/--zone/--project.
 # Usage:
-#   ./deploy.sh                # deploy cactus binary + config (keys from Secret Manager)
-#   ./deploy.sh --setup        # first deploy on a fresh VM
-#   ./deploy.sh --local-keys   # deploy using local keys from keys/ directory
+#   ./deploy.sh                                                    # deploy (keys from Secret Manager)
+#   ./deploy.sh --setup                                            # first deploy on a fresh VM
+#   ./deploy.sh --local-keys                                       # deploy using local keys from keys/ directory
+#   ./deploy.sh --vm=my-vm --zone=us-east1-b --project=myproject   # override defaults
 set -euo pipefail
 
-VM="${CACTUS_VM:-https-testing}"
-ZONE="${CACTUS_ZONE:-us-central1-a}"
-PROJECT="${CACTUS_PROJECT:?Set CACTUS_PROJECT (e.g. export CACTUS_PROJECT=myproject)}"
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 STAGING="/tmp/cactus-deploy"
 
+source "$DEPLOY_DIR/config.sh"
+
 SETUP=false
 LOCAL_KEYS=false
+
+usage() {
+    echo "Usage: $0 --vm=<name> --zone=<zone> --project=<gcp-project> [--setup] [--local-keys]" >&2
+}
 
 for arg in "$@"; do
     case "$arg" in
@@ -26,13 +31,28 @@ for arg in "$@"; do
         --local|--local-keys)
             LOCAL_KEYS=true
             ;;
+        --vm=*)
+            VM="${arg#*=}"
+            ;;
+        --zone=*)
+            ZONE="${arg#*=}"
+            ;;
+        --project=*)
+            PROJECT="${arg#*=}"
+            ;;
         *)
             echo "Unknown argument: $arg" >&2
-            echo "Usage: $0 [--setup] [--local-keys]" >&2
+            usage
             exit 1
             ;;
     esac
 done
+
+if [[ -z "$VM" || -z "$ZONE" || -z "$PROJECT" ]]; then
+    echo "Error: VM, zone, and project must not be empty." >&2
+    usage
+    exit 1
+fi
 
 if [[ "$SETUP" == "true" ]]; then
     echo "==> Running first-time VM setup (Apache, no SSL)..."

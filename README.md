@@ -8,10 +8,19 @@ VM directly.
 
 ## Prerequisites (local, one-time)
 
+VM name, zone, and GCP project default to the values in `config.sh` (sourced
+by `deploy.sh`). Override any of them via `make` command-line variables:
+
 ```sh
-export CACTUS_PROJECT=myproject    # GCP project ID — add to your shell profile
-export CACTUS_VM=https-testing     # VM name (default: https-testing)
-export CACTUS_ZONE=us-central1-a   # VM zone (default: us-central1-a)
+make deploy                                                          # uses deploy.sh's defaults
+make deploy CACTUS_PROJECT=myproject CACTUS_VM=my-vm CACTUS_ZONE=us-east1-b   # override
+```
+
+Calling `./deploy.sh` directly instead of via `make` works the same way,
+with `--project=`, `--vm=`, `--zone=` flags overriding the built-in defaults
+(see the usage comment at the top of `deploy.sh`).
+
+```sh
 export CACTUS_SRC=~/src/cactus     # Optional: path to existing cactus repo (default: auto-clones meacer/cactus)
 ```
 
@@ -32,9 +41,9 @@ Generate CA + witness keys (only needed when creating new keys, e.g., after `./c
 ## Fresh VM
 
 ```sh
-# Create the VM (GCP):
-gcloud compute instances create $CACTUS_VM \
-    --zone=$CACTUS_ZONE --project=$CACTUS_PROJECT \
+# Create the VM (GCP) — substitute your own project/vm/zone if not using deploy.sh's defaults:
+gcloud compute instances create cactus-testing-1 \
+    --zone=us-central1-a --project=meacer \
     --machine-type=e2-micro \
     --image-family=debian-12 --image-project=debian-cloud
 
@@ -48,8 +57,8 @@ make setup
 ## Subsequent deploys (local)
 
 ```sh
-make deploy                # deploys using keys from GCP Secret Manager
-./deploy.sh --local-keys   # deploys using local keys in keys/ directory
+make deploy
+./deploy.sh --local-keys   # using local keys in keys/ directory
 ```
 
 ## Other commands (local)
@@ -62,23 +71,24 @@ make clean                        # remove cloned source (.cactus-src) and built
 
 ## Open firewall ports (GCP, one-time)
 
-Required to access cactus directly via `http://<external-ip>:14080`:
+Required to access cactus directly via `http://<external-ip>:14080`. Substitute
+your own project/vm/zone if not using deploy.sh's defaults:
 
 ```sh
 # First time:
 gcloud compute firewall-rules create allow-cactus \
-    --project=$CACTUS_PROJECT \
+    --project=meacer \
     --allow=tcp:14080,tcp:14081 \
     --target-tags=cactus \
     --source-ranges=0.0.0.0/0
 
-gcloud compute instances add-tags $CACTUS_VM \
-    --zone=$CACTUS_ZONE --project=$CACTUS_PROJECT \
+gcloud compute instances add-tags cactus-testing-1 \
+    --zone=us-central1-a --project=meacer \
     --tags=cactus
 
 # To update an existing rule:
 gcloud compute firewall-rules update allow-cactus \
-    --project=$CACTUS_PROJECT \
+    --project=meacer \
     --allow=tcp:14080,tcp:14081
 ```
 
@@ -87,11 +97,12 @@ Takes effect immediately — no VM restart needed.
 ## Delete the VM (GCP)
 
 ```sh
-gcloud compute instances delete $CACTUS_VM --zone=$CACTUS_ZONE --project=$CACTUS_PROJECT
+gcloud compute instances delete cactus-testing-1 --zone=us-central1-a --project=meacer
 ```
 
 ## Files
 
+- `config.sh` — default VM/zone/project for deploy.sh
 - `cactus-config.json` — cactus app config
 - `apache.conf` — Apache vhost config (all domains)
 - `cactus.service` — systemd unit

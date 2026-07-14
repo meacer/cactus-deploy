@@ -1,6 +1,13 @@
 GO ?= gotip
 REPO ?= https://github.com/meacer/cactus.git
 CACTUS_SRC ?= .cactus-src
+CACTUS_VM ?=
+CACTUS_ZONE ?=
+CACTUS_PROJECT ?=
+
+# Only pass flags for vars actually given on the command line, so deploy.sh's
+# own defaults apply when a var is left unset.
+DEPLOY_FLAGS = $(if $(CACTUS_VM),--vm=$(CACTUS_VM)) $(if $(CACTUS_ZONE),--zone=$(CACTUS_ZONE)) $(if $(CACTUS_PROJECT),--project=$(CACTUS_PROJECT))
 
 .PHONY: build deploy setup clean
 
@@ -15,10 +22,10 @@ build:
 	cd "$(CACTUS_SRC)" && GOOS=linux GOARCH=amd64 $(GO) build -o "$(CURDIR)/bin/cactus" ./cmd/cactus
 
 deploy: build
-	./deploy.sh
+	./deploy.sh $(DEPLOY_FLAGS)
 
 setup: build
-	./deploy.sh --setup
+	./deploy.sh --setup $(DEPLOY_FLAGS)
 
 clean:
 	rm -rf .cactus-src bin
