@@ -8,7 +8,7 @@ set -euo pipefail
 echo "==> Updating apt package index..."
 DEBIAN_FRONTEND=noninteractive apt-get update
 echo "==> Installing apache2 and certbot..."
-DEBIAN_FRONTEND=noninteractive apt-get install -y apache2 certbot
+DEBIAN_FRONTEND=noninteractive apt-get install -y apache2 certbot lego
 
 echo "==> Enabling Apache proxy and SSL modules..."
 a2enmod proxy proxy_http ssl headers rewrite
