@@ -55,6 +55,30 @@ if [[ -z "$VM" || -z "$ZONE" || -z "$PROJECT" ]]; then
 fi
 
 if [[ "$SETUP" == "true" ]]; then
+    VM_SA=$(gcloud compute instances describe "$VM" --project="$PROJECT" --zone="$ZONE" --format="get(serviceAccounts[0].email)")
+
+    echo "Creating firewall rules to allow SSH, HTTP, and HTTPS traffic to the VM service account $VM_SA"
+    gcloud compute firewall-rules create allow-http-https \
+        --project="$PROJECT" \
+        --direction=INGRESS \
+        --priority=1000 \
+        --network=default \
+        --action=ALLOW \
+        --rules=tcp:22,tcp:80,tcp:443 \
+        --source-ranges=0.0.0.0/0 \
+        --target-service-accounts="$VM_SA" || true
+
+    echo "Creating firewall rules to allow Cactus traffic to the VM service account $VM_SA"
+    gcloud compute firewall-rules create allow-cactus \
+        --project="$PROJECT" \
+        --direction=INGRESS \
+        --priority=1000 \
+        --network=default \
+        --action=ALLOW \
+        --rules=tcp:14080,tcp:14081 \
+        --source-ranges=0.0.0.0/0 \
+        --target-service-accounts="$VM_SA" || true
+
     echo "==> Running first-time VM setup (Apache, no SSL)..."
     gcloud compute scp \
         "$DEPLOY_DIR/data/setup-vm.sh" \
