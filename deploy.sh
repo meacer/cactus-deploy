@@ -112,6 +112,7 @@ gcloud compute scp \
     "$DEPLOY_DIR/cactus-config.json" \
     "$DEPLOY_DIR/cactus.service" \
     "$DEPLOY_DIR/data/apache-http.conf" \
+    "$DEPLOY_DIR/data/reset-cactus-data.sh" \
     "$DEPLOY_DIR/index.html" \
     "$VM:$STAGING/" \
     --zone="$ZONE" --project="$PROJECT"
@@ -139,6 +140,9 @@ sudo cp $STAGING/index.html /var/www/html/index.html
 sudo mkdir -p /var/lib/cactus/keys
 sudo cp $STAGING/keys/*.pem $STAGING/keys/*.seed /var/lib/cactus/keys/
 sudo chmod 600 /var/lib/cactus/keys/*.seed
+
+sudo cp $STAGING/reset-cactus-data.sh /usr/local/bin/reset-cactus-data.sh
+sudo chmod +x /usr/local/bin/reset-cactus-data.sh
 
 rm -rf $STAGING
 
