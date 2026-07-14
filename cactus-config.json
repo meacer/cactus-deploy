@@ -11,7 +11,7 @@
   },
   "ca_cosigner_quorum": {
     "best_effort_after_minimum": false,
-    "checkpoint_cosignatures": false,
+    "checkpoint_cosignatures": true,
     "min_signatures": 1,
     "mirror_retry_deadline_ms": 8000,
     "mirrors": [
@@ -42,7 +42,7 @@
   },
   "mirror": {
     "algorithm": "mldsa-44",
-    "checkpoint_cosignatures": false,
+    "checkpoint_cosignatures": true,
     "cosigner_id": "11129.11.99.2",
     "enabled": true,
     "require_ca_signature_on_subtree": true,
