@@ -57,8 +57,8 @@ fi
 if [[ "$SETUP" == "true" ]]; then
     echo "==> Running first-time VM setup (Apache, no SSL)..."
     gcloud compute scp \
-        "$DEPLOY_DIR/setup-vm.sh" \
-        "$DEPLOY_DIR/apache-http.conf" \
+        "$DEPLOY_DIR/data/setup-vm.sh" \
+        "$DEPLOY_DIR/data/apache-http.conf" \
         "$VM:/tmp/" \
         --zone="$ZONE" --project="$PROJECT"
     gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- \
@@ -69,13 +69,13 @@ if [[ "$LOCAL_KEYS" == "true" ]]; then
     echo "==> Using local keys from $DEPLOY_DIR/keys..."
     KEYS_DIR="$DEPLOY_DIR/keys"
 else
-    echo "==> Downloading keys from GCP Secret Manager..."
+    echo "==> Downloading keys from GCP Secret Manager to $TMP_KEYS..."
     TMP_KEYS="$(mktemp -d)"
     trap '[[ -n "${TMP_KEYS:-}" ]] && rm -rf "$TMP_KEYS"' EXIT
-    gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" > "$TMP_KEYS/ca-cosigner.seed"
-    gcloud secrets versions access latest --secret=ca1-public-key --project="$PROJECT" > "$TMP_KEYS/ca-cosigner.pem"
-    gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" > "$TMP_KEYS/witness-cosigner.seed"
-    gcloud secrets versions access latest --secret=mirror1-public-key --project="$PROJECT" > "$TMP_KEYS/witness-cosigner.pem"
+    gcloud secrets versions access latest --secret=ca1-cosigner-seed      --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.seed"
+    gcloud secrets versions access latest --secret=ca1-public-key         --project="$PROJECT" --out-file="$TMP_KEYS/ca-cosigner.pem"
+    gcloud secrets versions access latest --secret=mirror1-cosigner-seed  --project="$PROJECT" --out-file="$TMP_KEYS/witness-cosigner.seed"
+    gcloud secrets versions access latest --secret=mirror1-public-key     --project="$PROJECT" --out-file="$TMP_KEYS/witness-cosigner.pem"
     chmod 600 "$TMP_KEYS/"*.seed
     KEYS_DIR="$TMP_KEYS"
 fi
@@ -87,7 +87,7 @@ gcloud compute scp \
     "$DEPLOY_DIR/bin/cactus" \
     "$DEPLOY_DIR/cactus-config.json" \
     "$DEPLOY_DIR/cactus.service" \
-    "$DEPLOY_DIR/apache-http.conf" \
+    "$DEPLOY_DIR/data/apache-http.conf" \
     "$DEPLOY_DIR/index.html" \
     "$VM:$STAGING/" \
     --zone="$ZONE" --project="$PROJECT"

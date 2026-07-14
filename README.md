@@ -104,6 +104,6 @@ gcloud compute instances delete cactus-testing-1 --zone=us-central1-a --project=
 
 - `config.sh` — default VM/zone/project for deploy.sh
 - `cactus-config.json` — cactus app config
-- `apache.conf` — Apache vhost config (all domains)
 - `cactus.service` — systemd unit
 - `keys/` — cosigner seeds (secret, gitignored) and public keys
+- `data/` — files copied to and run on the VM (Apache configs, `setup-vm.sh`)
