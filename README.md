@@ -3,8 +3,8 @@
 Deploy scripts for the cactus MTC CA server on a GCP VM.
 
 All commands run on your **local machine** unless noted otherwise. `make setup`
-and `make deploy` SSH into the VM automatically — you don't run anything on the
-VM directly.
+and `make deploy` SSH into the VM automatically — the only step you run on the
+VM directly is requesting an MTC certificate (see below).
 
 ## Prerequisites (local, one-time)
 
@@ -70,6 +70,23 @@ make CACTUS_SRC=~/src/cactus      # build using an existing local cactus repo (b
 make clean                        # remove cloned source (.cactus-src) and built binary
 ```
 
+## Request an MTC certificate (on the VM)
+
+`deploy.sh` copies `data/requestmtc.go` to `/usr/local/share/cactus/` on the VM,
+and `setup-vm.sh` installs Go there. To request a certificate for a domain from
+a local ACME server and serve it over HTTPS, SSH in and run it from source:
+
+```sh
+gcloud compute ssh cactus-testing-1 --zone=us-central1-a --project=meacer
+
+go run /usr/local/share/cactus/requestmtc.go -domain example.test
+go run /usr/local/share/cactus/requestmtc.go -domain example.test -email me@example.com
+```
+
+It writes each domain's Apache config to `/etc/apache2/sites-available/mtc-<domain>.conf`
+via `sudo`, so run it as your normal SSH user rather than as root. Certificates
+land in `./certs` relative to your working directory; override with `-path`.
+
 ## Open firewall ports (GCP, one-time)
 
 Required to access cactus directly via `http://<external-ip>:14080`. Substitute
@@ -107,4 +124,4 @@ gcloud compute instances delete cactus-testing-1 --zone=us-central1-a --project=
 - `cactus-config.json` — cactus app config
 - `cactus.service` — systemd unit
 - `keys/` — cosigner seeds (secret, gitignored) and public keys
-- `data/` — files copied to and run on the VM (Apache configs, `setup-vm.sh`)
+- `data/` — files copied to and run on the VM (Apache configs, `setup-vm.sh`, `requestmtc.go`)

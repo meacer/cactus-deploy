@@ -113,6 +113,7 @@ gcloud compute scp \
     "$DEPLOY_DIR/cactus.service" \
     "$DEPLOY_DIR/data/apache-http.conf" \
     "$DEPLOY_DIR/data/reset-cactus-data.sh" \
+    "$DEPLOY_DIR/data/requestmtc.go" \
     "$DEPLOY_DIR/index.html" \
     "$VM:$STAGING/" \
     --zone="$ZONE" --project="$PROJECT"
@@ -144,6 +145,11 @@ sudo chmod 600 /var/lib/cactus/keys/*.seed
 sudo cp $STAGING/reset-cactus-data.sh /usr/local/bin/reset-cactus-data.sh
 sudo chmod +x /usr/local/bin/reset-cactus-data.sh
 
+# requestmtc.go is run from source with 'go run', not built or installed as a
+# binary, so it lives under share/ rather than bin/.
+sudo mkdir -p /usr/local/share/cactus
+sudo cp $STAGING/requestmtc.go /usr/local/share/cactus/requestmtc.go
+
 rm -rf $STAGING
 
 sudo systemctl daemon-reload
@@ -152,4 +158,6 @@ sudo systemctl restart cactus
 sudo systemctl status cactus --no-pager
 
 echo "==> Deploy complete"
+echo "==> To request an MTC certificate, SSH into the VM and run:"
+echo "    go run /usr/local/share/cactus/requestmtc.go -domain <domain>"
 REMOTE
