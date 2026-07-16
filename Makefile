@@ -21,6 +21,7 @@ build:
 		exit 1; \
 	fi
 	cd "$(CACTUS_SRC)" && GOOS=linux GOARCH=amd64 $(GO) build -o "$(CURDIR)/bin/cactus" ./cmd/cactus
+	cd "$(CACTUS_SRC)" && GOOS=linux GOARCH=amd64 $(GO) build -o "$(CURDIR)/bin/cactus-cli" ./cmd/cactus-cli
 
 deploy: build
 	./deploy.sh $(DEPLOY_FLAGS)

@@ -109,6 +109,7 @@ gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- \
     "rm -rf $STAGING && mkdir -p $STAGING/keys"
 gcloud compute scp \
     "$DEPLOY_DIR/bin/cactus" \
+    "$DEPLOY_DIR/bin/cactus-cli" \
     "$DEPLOY_DIR/cactus-config.json" \
     "$DEPLOY_DIR/cactus.service" \
     "$DEPLOY_DIR/data/apache-http.conf" \
@@ -129,6 +130,9 @@ set -euo pipefail
 
 sudo mv $STAGING/cactus /usr/local/bin/cactus
 sudo chmod +x /usr/local/bin/cactus
+
+sudo mv $STAGING/cactus-cli /usr/local/bin/cactus-cli
+sudo chmod +x /usr/local/bin/cactus-cli
 
 sudo mkdir -p /etc/cactus
 sudo cp $STAGING/cactus-config.json /etc/cactus/config.json

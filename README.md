@@ -64,10 +64,10 @@ make deploy
 ## Other commands (local)
 
 ```sh
-make                              # build the Linux binary without deploying (clones/builds main)
+make                              # build the Linux binaries without deploying (clones/builds main)
 make CACTUS_BRANCH=my-branch      # build from a different branch of the auto-cloned repo
 make CACTUS_SRC=~/src/cactus      # build using an existing local cactus repo (branch left as-is)
-make clean                        # remove cloned source (.cactus-src) and built binary
+make clean                        # remove cloned source (.cactus-src) and built binaries
 ```
 
 ## Request an MTC certificate (on the VM)
@@ -86,6 +86,19 @@ go run /usr/local/share/cactus/requestmtc.go -domain example.test -email me@exam
 It writes each domain's Apache config to `/etc/apache2/sites-available/mtc-<domain>.conf`
 via `sudo`, so run it as your normal SSH user rather than as root. Certificates
 land in `./certs` relative to your working directory; override with `-path`.
+
+## Inspect the log with cactus-cli (on the VM)
+
+`deploy.sh` installs the `cactus-cli` debugging client to `/usr/local/bin/cactus-cli`
+alongside the server binary. From the VM (or anywhere that can reach the log):
+
+```sh
+cactus-cli tree show   http://localhost:14080     # checkpoint: size + root
+cactus-cli tree verify http://localhost:14080     # replay every tile, check the root
+cactus-cli entry       http://localhost:14080 0   # decode a log entry
+cactus-cli cert text   ./certs/example.test.pem   # human-readable view of a cert
+cactus-cli cert verify ./certs/example.test.pem http://localhost:14080
+```
 
 ## Open firewall ports (GCP, one-time)
 
