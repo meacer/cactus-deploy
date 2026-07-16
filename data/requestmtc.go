@@ -236,6 +236,7 @@ func vhostConf(domain, docRoot, certFile, keyFile string) string {
 
     # Pebble test certs use a weak signature digest that OpenSSL's default
     # security level (2) rejects; lower it so Apache will load the cert.
+    # See https://github.com/openssl/openssl/issues/31195
     SSLCipherSuite DEFAULT:@SECLEVEL=0
 
     <Directory %[2]s>
