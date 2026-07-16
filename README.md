@@ -87,6 +87,26 @@ It writes each domain's Apache config to `/etc/apache2/sites-available/mtc-<doma
 via `sudo`, so run it as your normal SSH user rather than as root. Certificates
 land in `./certs` relative to your working directory; override with `-path`.
 
+Once the site is serving, it converts the standalone cert into its
+landmark-relative form (draft §6.3.3) with `cactus-cli`, writing it alongside
+the standalone one as `certs/certificates/<domain>-landmark-relative.pem`:
+
+```sh
+go run /usr/local/share/cactus/requestmtc.go -domain example.test -log http://localhost:14080/1
+go run /usr/local/share/cactus/requestmtc.go -domain example.test -log ""   # skip this step
+```
+
+A freshly issued entry isn't covered by a landmark until the next one is
+allocated (every `landmarks.time_between_landmarks_ms`, 60s in
+`cactus-config.json`), so this step polls for up to `-landmark-wait` (default
+90s). If no landmark shows up in time it warns and prints the `cactus-cli`
+command to run later — the standalone cert Apache serves is unaffected either
+way. To do the conversion by hand:
+
+```sh
+cactus-cli cert landmark-relative ./certs/certificates/example.test.pem http://localhost:14080/1 > lr.pem
+```
+
 ## Inspect the log with cactus-cli (on the VM)
 
 `deploy.sh` installs the `cactus-cli` debugging client to `/usr/local/bin/cactus-cli`
@@ -98,6 +118,10 @@ cactus-cli tree verify http://localhost:14080     # replay every tile, check the
 cactus-cli entry       http://localhost:14080 0   # decode a log entry
 cactus-cli cert text   ./certs/example.test.pem   # human-readable view of a cert
 cactus-cli cert verify ./certs/example.test.pem http://localhost:14080
+
+# Convert a standalone cert to its landmark-relative form (prints PEM on stdout).
+# Note the log number suffix (/1) — this endpoint is per-log, unlike those above:
+cactus-cli cert landmark-relative ./certs/example.test.pem http://localhost:14080/1
 ```
 
 ## Open firewall ports (GCP, one-time)

@@ -5,4 +5,5 @@ GCP VM and they're installed/run there (Apache configs, VM setup script,
 `requestmtc.go`).
 
 `requestmtc.go` is installed to `/usr/local/share/cactus/requestmtc.go` and run
-from source on the VM with `go run` (see the top-level README).
+from source on the VM with `go run` (see the top-level README). It shells out to
+`lego` and to `cactus-cli`, both of which the deploy puts on the VM's PATH.
