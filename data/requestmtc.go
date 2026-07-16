@@ -1,8 +1,9 @@
 // requestmtc.go requests a MTC certificate for a domain from a (local, e.g.
 // Pebble) ACME server via lego, then configures Apache to serve a small
 // hello-world site for that domain over HTTPS with an HTTP->HTTPS redirect.
-// Finally it converts the issued standalone certificate into its
-// landmark-relative form (draft §6.3.3) via cactus-cli.
+// Optionally, if -relative is true, it converts the issued standalone certificate
+// into its landmark-relative form (draft §6.3.3) via cactus-cli and uses that cert
+// in the Apache config for this domain instead of the standalone cert.
 //
 // Each domain gets its OWN Apache config file at
 // /etc/apache2/sites-available/mtc-<domain>.conf which is enabled with a2ensite.
@@ -11,9 +12,10 @@
 // Usage:
 //
 //	go run requestmtc.go -domain example.test
-//	go run requestmtc.go -domain example.test -email me@example.com
-//	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1
-//	go run requestmtc.go -domain example.test -log ""   # skip the landmark-relative step
+//	go run requestmtc.go -domain example.test -relative
+//	go run requestmtc.go -domain example.test -relative=true
+//	go run requestmtc.go -domain example.test -email me@example.com -relative
+//	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1 -relative
 //
 // Privileged steps (writing under /etc/apache2 and /var/www, reloading Apache)
 // are run via sudo, so you may be prompted for your password.
@@ -44,9 +46,10 @@ func main() {
 	email := flag.String("email", "you@example.com", "ACME account email")
 	server := flag.String("server", "http://localhost:14000/directory", "ACME server directory URL")
 	certPath := flag.String("path", "./certs", "lego --path directory (certs land in <path>/certificates)")
-	logURL := flag.String("log", "http://localhost:14080/1", "cactus log URL (monitoring endpoint + log number) used to build the landmark-relative cert; empty to skip that step")
+	logURL := flag.String("log", "http://localhost:14080/1", "cactus log URL (monitoring endpoint + log number) used to build the landmark-relative cert")
 	cli := flag.String("cactus-cli", "cactus-cli", "path to the cactus-cli binary")
 	landmarkWait := flag.Duration("landmark-wait", 90*time.Second, "how long to wait for a landmark covering the freshly issued entry")
+	relative := flag.Bool("relative", false, "whether to obtain and use a landmark-relative cert in Apache config")
 	flag.Parse()
 
 	if *domain == "" {
@@ -55,12 +58,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(*domain, *email, *server, *certPath, *logURL, *cli, *landmarkWait); err != nil {
+	if err := run(*domain, *email, *server, *certPath, *logURL, *cli, *landmarkWait, *relative); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
 
-func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration) error {
+func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative bool) error {
 	// 1. Request the certificate with lego.
 	logStep("Requesting certificate for %s from %s", domain, server)
 	lego := exec.Command("lego",
@@ -110,15 +113,30 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 	}
 	logStep("Hello world page written to %s", indexPath)
 
-	// 3. Write this domain's OWN Apache config (never the shared mtc.conf).
+	// 3. Convert the standalone cert into its landmark-relative form if requested.
+	certToUse := certFile
+	if relative {
+		if logURL == "" {
+			log.Printf("==> warning: --relative requested but -log URL is empty; using standalone certificate")
+		} else {
+			lrFile := filepath.Join(certDir, domain+"-landmark-relative.pem")
+			if err := landmarkRelative(cli, pemFile, logURL, lrFile, landmarkWait); err != nil {
+				log.Printf("==> warning: no landmark-relative certificate written: %v; using standalone certificate", err)
+			} else {
+				certToUse = lrFile
+			}
+		}
+	}
+
+	// 4. Write this domain's OWN Apache config (never the shared mtc.conf).
 	confName := "mtc-" + domain + ".conf"
 	confPath := filepath.Join("/etc/apache2/sites-available", confName)
-	logStep("Writing Apache config %s", confPath)
-	if err := sudoWriteFile(confPath, vhostConf(domain, docRoot, certFile, keyFile)); err != nil {
+	logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
+	if err := sudoWriteFile(confPath, vhostConf(domain, docRoot, certToUse, keyFile)); err != nil {
 		return fmt.Errorf("writing apache config: %w", err)
 	}
 
-	// 4. Enable the site and (re)load Apache.
+	// 5. Enable the site and (re)load Apache.
 	logStep("Enabling mod_ssl and site %s", confName)
 	if err := sudoRun("a2enmod", "ssl"); err != nil {
 		return fmt.Errorf("a2enmod ssl: %w", err)
@@ -133,17 +151,6 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 	logStep("Reloading Apache")
 	if err := sudoRun("systemctl", "reload-or-restart", "apache2"); err != nil {
 		return fmt.Errorf("reloading apache: %w", err)
-	}
-
-	// 5. Convert the standalone cert into its landmark-relative form. This runs
-	// last because it can block for a landmark interval, and the site is
-	// already serving by this point. A failure here is reported but not fatal:
-	// the standalone cert Apache is using is unaffected.
-	if logURL != "" {
-		lrFile := filepath.Join(certDir, domain+"-landmark-relative.pem")
-		if err := landmarkRelative(cli, pemFile, logURL, lrFile, landmarkWait); err != nil {
-			log.Printf("==> warning: no landmark-relative certificate written: %v", err)
-		}
 	}
 
 	logStep("Done. https://%s/ is now served.", domain)

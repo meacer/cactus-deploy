@@ -87,13 +87,14 @@ It writes each domain's Apache config to `/etc/apache2/sites-available/mtc-<doma
 via `sudo`, so run it as your normal SSH user rather than as root. Certificates
 land in `./certs` relative to your working directory; override with `-path`.
 
-Once the site is serving, it converts the standalone cert into its
-landmark-relative form (draft §6.3.3) with `cactus-cli`, writing it alongside
-the standalone one as `certs/certificates/<domain>-landmark-relative.pem`:
+If `--relative=true` (or `-relative`) is passed, it converts the standalone
+cert into its landmark-relative form (draft §6.3.3) with `cactus-cli`, writing
+it alongside the standalone one as `certs/certificates/<domain>-landmark-relative.pem`,
+and uses that landmark-relative cert in the Apache config for this domain:
 
 ```sh
-go run /usr/local/share/cactus/requestmtc.go -domain example.test -log http://localhost:14080/1
-go run /usr/local/share/cactus/requestmtc.go -domain example.test -log ""   # skip this step
+go run /usr/local/share/cactus/requestmtc.go -domain example.test -relative
+go run /usr/local/share/cactus/requestmtc.go -domain example.test --relative=false   # standalone cert (default)
 ```
 
 A freshly issued entry isn't covered by a landmark until the next one is
