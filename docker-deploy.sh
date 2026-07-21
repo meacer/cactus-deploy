@@ -12,9 +12,28 @@ docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --pr
 cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
-# Ensure docker-compose is available on the VM and run compose up:
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << 'REMOTE'
+# Populate secrets into Docker volumes and run compose up:
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
 set -euo pipefail
+
+# Ensure docker volumes exist:
+docker volume create cactus_cactus-data >/dev/null
+docker volume create cactus_sunlight-data >/dev/null
+
+TMP_KEYS="\$(mktemp -d)"
+trap 'rm -rf "\$TMP_KEYS"' EXIT
+
+if gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" --out-file="\$TMP_KEYS/ca-cosigner.seed" 2>/dev/null; then
+  echo "==> Populating ca-cosigner.seed into cactus_cactus-data volume..."
+  docker run --rm -v cactus_cactus-data:/var/lib/cactus -v "\$TMP_KEYS":/keys:ro \
+    alpine sh -c "mkdir -p /var/lib/cactus/keys && cp /keys/ca-cosigner.seed /var/lib/cactus/keys/ca-cosigner.seed"
+fi
+
+if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="\$TMP_KEYS/witness-seed.bin" 2>/dev/null; then
+  echo "==> Populating witness-seed.bin into cactus_sunlight-data volume..."
+  docker run --rm -v cactus_sunlight-data:/var/lib/sunlight -v "\$TMP_KEYS":/keys:ro \
+    alpine sh -c "mkdir -p /var/lib/sunlight && cp /keys/witness-seed.bin /var/lib/sunlight/witness-seed.bin"
+fi
 
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
@@ -31,5 +50,5 @@ else
 fi
 
 cd ~/docker
-$COMPOSE_CMD -f compose.yaml up -d
+\$COMPOSE_CMD -f compose.yaml up -d
 REMOTE
