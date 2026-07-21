@@ -8,6 +8,8 @@ services:
         sed -i 's/#LoadModule proxy_module/LoadModule proxy_module/' /usr/local/apache2/conf/httpd.conf &&
         sed -i 's/#LoadModule proxy_http_module/LoadModule proxy_http_module/' /usr/local/apache2/conf/httpd.conf &&
         sed -i 's/#LoadModule ssl_module/LoadModule ssl_module/' /usr/local/apache2/conf/httpd.conf &&
+        sed -i '/Listen 443/d' /usr/local/apache2/conf/httpd.conf &&
+        echo 'Listen 443 https' >> /usr/local/apache2/conf/httpd.conf &&
         echo 'Include conf/extra/apache-docker.conf' >> /usr/local/apache2/conf/httpd.conf &&
         httpd-foreground
       "
@@ -16,7 +18,25 @@ services:
       - "443:443"
     volumes:
       - ./apache-docker.conf:/usr/local/apache2/conf/extra/apache-docker.conf:ro
-      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /etc/letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot:ro
     depends_on:
       - cactus
       - skylight
+
+  certbot:
+    image: certbot/certbot:latest
+    entrypoint: >
+      sh -c "
+        trap exit TERM;
+        while true; do
+          certbot renew --webroot -w /var/www/certbot --quiet;
+          sleep 5d & wait \$$!;
+        done
+      "
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - certbot-webroot:/var/www/certbot
+
+volumes:
+  certbot-webroot:
