@@ -1,0 +1,22 @@
+name: cactus
+
+services:
+  apache:
+    image: httpd:2.4-alpine
+    command: >
+      sh -c "
+        sed -i 's/#LoadModule proxy_module/LoadModule proxy_module/' /usr/local/apache2/conf/httpd.conf &&
+        sed -i 's/#LoadModule proxy_http_module/LoadModule proxy_http_module/' /usr/local/apache2/conf/httpd.conf &&
+        sed -i 's/#LoadModule ssl_module/LoadModule ssl_module/' /usr/local/apache2/conf/httpd.conf &&
+        echo 'Include conf/extra/apache-docker.conf' >> /usr/local/apache2/conf/httpd.conf &&
+        httpd-foreground
+      "
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./apache-docker.conf:/usr/local/apache2/conf/extra/apache-docker.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - cactus
+      - skylight
