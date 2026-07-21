@@ -12,6 +12,10 @@ docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --pr
 cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
+# Override with custom configs from cactus-deploy:
+gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
+
 # Populate secrets into Docker volumes and run compose up:
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
 set -euo pipefail
@@ -50,5 +54,5 @@ else
 fi
 
 cd ~/docker
-\$COMPOSE_CMD -f compose.yaml up -d
+\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d
 REMOTE
