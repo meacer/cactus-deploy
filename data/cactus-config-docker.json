@@ -8,7 +8,7 @@
     "pool_size": 256
   },
   "ca_cosigner": {
-    "id": "44363.47.1.99",
+    "id": "11129.11.99.1",
     "algorithm": "mldsa-44",
     "seed_path": "keys/ca-cosigner.seed"
   },
@@ -31,7 +31,7 @@
   "ca_cosigner_quorum": {
     "mirrors": [
       {
-        "id": "44363.47.2.1",
+        "id": "11129.11.99.2",
         "url": "http://sunlight:8080/sign-subtree",
         "algorithm": "mldsa-44",
         "public_key_path": "keys/sunlight-mirror.pem"
@@ -46,7 +46,7 @@
   "mirror_push": {
     "targets": [
       {
-        "id": "44363.47.2.1",
+        "id": "11129.11.99.2",
         "submission_prefix": "http://sunlight:8080",
         "monitoring_prefix": "http://skylight:8081/mirror",
         "algorithm": "mldsa-44",
