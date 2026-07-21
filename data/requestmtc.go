@@ -13,9 +13,9 @@
 //
 //	go run requestmtc.go -domain example.test
 //	go run requestmtc.go -domain example.test -relative
-//	go run requestmtc.go -domain example.test -relative=true
-//	go run requestmtc.go -domain example.test -email me@example.com -relative
-//	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1 -relative
+//	go run requestmtc.go -domain example.test -relative -tai
+//	go run requestmtc.go -domain example.test -email me@example.com -relative -tai
+//	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1 -relative -tai
 //
 // Privileged steps (writing under /etc/apache2 and /var/www, reloading Apache)
 // are run via sudo, so you may be prompted for your password.
@@ -23,6 +23,9 @@ package main
 
 import (
 	"bytes"
+	"crypto/x509"
+	"encoding/asn1"
+	"encoding/pem"
 	"flag"
 	"fmt"
 	"io"
@@ -50,6 +53,7 @@ func main() {
 	cli := flag.String("cactus-cli", "cactus-cli", "path to the cactus-cli binary")
 	landmarkWait := flag.Duration("landmark-wait", 90*time.Second, "how long to wait for a landmark covering the freshly issued entry")
 	relative := flag.Bool("relative", false, "whether to obtain and use a landmark-relative cert in Apache config")
+	tai := flag.Bool("tai", false, "whether to attach a TAI CERTIFICATE PROPERTIES block to the landmark-relative cert")
 	flag.Parse()
 
 	if *domain == "" {
@@ -58,12 +62,12 @@ func main() {
 		os.Exit(1)
 	}
 
-	if err := run(*domain, *email, *server, *certPath, *logURL, *cli, *landmarkWait, *relative); err != nil {
+	if err := run(*domain, *email, *server, *certPath, *logURL, *cli, *landmarkWait, *relative, *tai); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
 
-func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative bool) error {
+func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative, tai bool) error {
 	// 1. Request the certificate with lego.
 	logStep("Requesting certificate for %s from %s", domain, server)
 	lego := exec.Command("lego",
@@ -119,8 +123,19 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		if logURL == "" {
 			log.Printf("==> warning: --relative requested but -log URL is empty; using standalone certificate")
 		} else {
+			inputPem := pemFile
+			if tai {
+				withPropsFile, err := prepareTAIInput(pemFile, certDir, domain)
+				if err != nil {
+					log.Printf("==> warning: failed to attach TAI properties: %v", err)
+				} else {
+					inputPem = withPropsFile
+					logStep("Standalone cert with TAI properties written to %s", withPropsFile)
+				}
+			}
+
 			lrFile := filepath.Join(certDir, domain+"-landmark-relative.pem")
-			if err := landmarkRelative(cli, pemFile, logURL, lrFile, landmarkWait); err != nil {
+			if err := landmarkRelative(cli, inputPem, logURL, lrFile, landmarkWait); err != nil {
 				log.Printf("==> warning: no landmark-relative certificate written: %v; using standalone certificate", err)
 			} else {
 				certToUse = lrFile
@@ -263,4 +278,76 @@ func sudoWriteFile(path, content string) error {
 	cmd.Stdout = io.Discard // tee echoes stdin; we don't need it on the terminal
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
+}
+
+var oidTrustAnchorID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 44363, 47, 1}
+
+func prepareTAIInput(pemFile, certDir, domain string) (string, error) {
+	raw, err := os.ReadFile(pemFile)
+	if err != nil {
+		return "", err
+	}
+	caID, err := extractCAID(raw)
+	if err != nil {
+		return "", err
+	}
+	propsPEM, err := buildCAPropertiesBlock(caID)
+	if err != nil {
+		return "", err
+	}
+
+	content := append(propsPEM, raw...)
+	outFile := filepath.Join(certDir, domain+"-standalone-with-props.pem")
+	if err := os.WriteFile(outFile, content, 0644); err != nil {
+		return "", err
+	}
+	return outFile, nil
+}
+
+func extractCAID(certPEM []byte) (string, error) {
+	block, _ := pem.Decode(certPEM)
+	if block == nil {
+		return "", fmt.Errorf("no pem block found")
+	}
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return "", err
+	}
+	for _, name := range cert.Issuer.Names {
+		if name.Type.Equal(oidTrustAnchorID) {
+			return fmt.Sprintf("%v", name.Value), nil
+		}
+	}
+	return "", fmt.Errorf("trustAnchorID attribute not found in issuer DN")
+}
+
+func buildCAPropertiesBlock(caID string) ([]byte, error) {
+	var body []byte
+	for _, part := range strings.Split(caID, ".") {
+		var v uint64
+		if _, err := fmt.Sscanf(part, "%d", &v); err != nil {
+			return nil, fmt.Errorf("invalid CA ID arc %q: %w", part, err)
+		}
+		body = appendBase128(body, v)
+	}
+	prop := append([]byte{0x00, 0x00, byte(len(body) >> 8), byte(len(body))}, body...)
+	list := append([]byte{byte(len(prop) >> 8), byte(len(prop))}, prop...)
+
+	block := &pem.Block{
+		Type:  "CERTIFICATE PROPERTIES",
+		Bytes: list,
+	}
+	return pem.EncodeToMemory(block), nil
+}
+
+func appendBase128(dst []byte, v uint64) []byte {
+	var buf [10]byte
+	n := len(buf)
+	n--
+	buf[n] = byte(v & 0x7f)
+	for v >>= 7; v > 0; v >>= 7 {
+		n--
+		buf[n] = byte(v&0x7f) | 0x80
+	}
+	return append(dst, buf[n:]...)
 }

@@ -90,10 +90,12 @@ land in `./certs` relative to your working directory; override with `-path`.
 If `--relative=true` (or `-relative`) is passed, it converts the standalone
 cert into its landmark-relative form (draft §6.3.3) with `cactus-cli`, writing
 it alongside the standalone one as `certs/certificates/<domain>-landmark-relative.pem`,
-and uses that landmark-relative cert in the Apache config for this domain:
+and uses that landmark-relative cert in the Apache config for this domain.
+Optionally pass `-tai` to attach the TAI `CERTIFICATE PROPERTIES` block (`11129.11.99.1.1.1.<landmarkNumber>`):
 
 ```sh
 go run /usr/local/share/cactus/requestmtc.go -domain example.test -relative
+go run /usr/local/share/cactus/requestmtc.go -domain example.test -relative -tai
 go run /usr/local/share/cactus/requestmtc.go -domain example.test --relative=false   # standalone cert (default)
 ```
 
