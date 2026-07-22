@@ -15,6 +15,8 @@ gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJEC
 # Override with custom configs from cactus-deploy:
 gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
+gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$VM":~/docker/request-certs.sh --zone="$ZONE" --project="$PROJECT"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh"
 
 # Populate secrets into Docker volumes and run compose up:
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
@@ -51,6 +53,13 @@ else
   sudo curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 -o /var/lib/toolbox/bin/docker-compose
   sudo chmod +x /var/lib/toolbox/bin/docker-compose
   COMPOSE_CMD="/var/lib/toolbox/bin/docker-compose"
+fi
+
+if ! command -v lego >/dev/null 2>&1 && [ ! -x /var/lib/toolbox/bin/lego ]; then
+  echo "Installing lego CLI to /var/lib/toolbox/bin/lego..."
+  sudo mkdir -p /var/lib/toolbox/bin
+  curl -sL https://github.com/go-acme/lego/releases/download/v4.16.1/lego_v4.16.1_linux_amd64.tar.gz | sudo tar xz -C /var/lib/toolbox/bin lego
+  sudo chmod +x /var/lib/toolbox/bin/lego
 fi
 
 cd ~/docker
