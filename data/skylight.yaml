@@ -1,0 +1,13 @@
+# skylight serves the read/monitoring side of the mirror. Sunlight
+# writes checkpoint and tile files into a local directory; skylight (or
+# any static file server) publishes them.
+
+listen:
+  - ":8081"
+
+operatorname: cactus docker-compose
+
+witnesses:
+  # Host header matching for mirror1.test.mtcs.dev
+  - monitoringprefix: https://mirror1.test.mtcs.dev
+    localdirectory: /var/lib/sunlight/public

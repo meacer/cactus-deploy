@@ -13,7 +13,7 @@ cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
 # Override with custom configs from cactus-deploy:
-gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$VM":~/docker/request-certs.sh --zone="$ZONE" --project="$PROJECT"
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh"
