@@ -15,8 +15,8 @@ gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJEC
 # Override with custom configs from cactus-deploy:
 gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
-gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh"
+gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-mtc-batch.sh" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh"
 
 # Populate secrets into Docker volumes and run compose up:
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
@@ -61,6 +61,33 @@ if ! command -v lego >/dev/null 2>&1 && [ ! -x /var/lib/toolbox/bin/lego ]; then
   curl -sL https://github.com/go-acme/lego/releases/download/v4.16.1/lego_v4.16.1_linux_amd64.tar.gz | sudo tar xz -C /var/lib/toolbox/bin lego
   sudo chmod +x /var/lib/toolbox/bin/lego
 fi
+
+# Configure systemd timer to run MTC cert requests every Monday and Thursday
+sudo tee /etc/systemd/system/request-mtc-cron.service >/dev/null << SERVICE
+[Unit]
+Description=Run MTC certificate requests for demo domains
+After=network.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/meacer/docker
+ExecStart=/bin/bash /home/meacer/docker/request-mtc-batch.sh
+SERVICE
+
+sudo tee /etc/systemd/system/request-mtc-cron.timer >/dev/null << TIMER
+[Unit]
+Description=Run MTC certificate requests every Monday and Thursday
+
+[Timer]
+OnCalendar=Mon,Thu *-*-* 00:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+TIMER
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now request-mtc-cron.timer
 
 cd ~/docker
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d

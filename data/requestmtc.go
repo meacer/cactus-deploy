@@ -101,7 +101,7 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 
 	// 2. Create a document root with a basic hello-world page.
 	var hostDocRoot string
-	if _, err := os.Stat("/var/www"); err == nil {
+	if _, err := exec.LookPath("a2ensite"); err == nil {
 		hostDocRoot = filepath.Join("/var/www", domain)
 	} else {
 		hostDocRoot, _ = filepath.Abs(filepath.Join("www", domain))
@@ -145,22 +145,20 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 	// 4. Write Apache VirtualHost config (<domain>.conf)
 	confName := domain + ".conf"
 
-	if _, err := os.Stat("/etc/apache2/sites-available"); err == nil {
+	if _, err := exec.LookPath("a2ensite"); err == nil {
 		// Standard non-Docker VM with host Apache installed
 		confPath := filepath.Join("/etc/apache2/sites-available", confName)
 		logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
 		if err := sudoWriteFile(confPath, vhostConf(domain, hostDocRoot, certToUse, keyFile)); err != nil {
 			return fmt.Errorf("writing apache config: %w", err)
 		}
-		if _, err := exec.LookPath("a2ensite"); err == nil {
-			logStep("Enabling mod_ssl and site %s", confName)
-			_ = sudoRun("a2enmod", "ssl")
-			_ = sudoRun("a2ensite", confName)
-			logStep("Validating Apache configuration")
-			if err := sudoRun("apache2ctl", "configtest"); err == nil {
-				logStep("Reloading Apache")
-				_ = sudoRun("systemctl", "reload-or-restart", "apache2")
-			}
+		logStep("Enabling mod_ssl and site %s", confName)
+		_ = sudoRun("a2enmod", "ssl")
+		_ = sudoRun("a2ensite", confName)
+		logStep("Validating Apache configuration")
+		if err := sudoRun("apache2ctl", "configtest"); err == nil {
+			logStep("Reloading Apache")
+			_ = sudoRun("systemctl", "reload-or-restart", "apache2")
 		}
 	} else {
 		// Docker-based setup
