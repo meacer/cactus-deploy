@@ -34,6 +34,31 @@ gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/c
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-mtc-batch.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo cp ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && sudo chmod +x /var/lib/toolbox/bin/cactus-cli /var/lib/toolbox/bin/requestmtc"
 
+LOCAL_TMP_KEYS="$(mktemp -d)"
+trap 'rm -rf "$LOCAL_TMP_KEYS"' EXIT
+
+echo "==> Fetching secrets from GCP Secret Manager locally..."
+HAS_CA_SEED=false
+HAS_MIRROR_SEED=false
+
+if gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/ca-cosigner.seed" 2>/dev/null; then
+  echo "  Downloaded ca1-cosigner-seed"
+  HAS_CA_SEED=true
+else
+  echo "  Warning: could not fetch ca1-cosigner-seed from Secret Manager"
+fi
+
+if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/witness-seed.bin" 2>/dev/null; then
+  echo "  Downloaded mirror1-cosigner-seed"
+  HAS_MIRROR_SEED=true
+else
+  echo "  Warning: could not fetch mirror1-cosigner-seed from Secret Manager"
+fi
+
+if [ "$HAS_CA_SEED" = true ] || [ "$HAS_MIRROR_SEED" = true ]; then
+  gcloud compute scp --recurse "$LOCAL_TMP_KEYS" "$VM":/tmp/cactus-keys --zone="$ZONE" --project="$PROJECT"
+fi
+
 # Populate secrets into Docker volumes and run compose up:
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
 set -euo pipefail
@@ -42,20 +67,19 @@ set -euo pipefail
 docker volume create cactus_cactus-data >/dev/null
 docker volume create cactus_sunlight-data >/dev/null
 
-TMP_KEYS="\$(mktemp -d)"
-trap 'rm -rf "\$TMP_KEYS"' EXIT
-
-if gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" --out-file="\$TMP_KEYS/ca-cosigner.seed" 2>/dev/null; then
+if [ -f /tmp/cactus-keys/ca-cosigner.seed ]; then
   echo "==> Populating ca-cosigner.seed into cactus_cactus-data volume..."
-  docker run --rm -v cactus_cactus-data:/var/lib/cactus -v "\$TMP_KEYS":/keys:ro \
-    alpine sh -c "mkdir -p /var/lib/cactus/keys && cp /keys/ca-cosigner.seed /var/lib/cactus/keys/ca-cosigner.seed"
+  docker run --rm -v cactus_cactus-data:/var/lib/cactus -v /tmp/cactus-keys:/keys:ro \
+    alpine sh -c "mkdir -p /var/lib/cactus/keys && cp /keys/ca-cosigner.seed /var/lib/cactus/keys/ca-cosigner.seed && chmod 600 /var/lib/cactus/keys/ca-cosigner.seed"
 fi
 
-if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="\$TMP_KEYS/witness-seed.bin" 2>/dev/null; then
+if [ -f /tmp/cactus-keys/witness-seed.bin ]; then
   echo "==> Populating witness-seed.bin into cactus_sunlight-data volume..."
-  docker run --rm -v cactus_sunlight-data:/var/lib/sunlight -v "\$TMP_KEYS":/keys:ro \
-    alpine sh -c "mkdir -p /var/lib/sunlight && cp /keys/witness-seed.bin /var/lib/sunlight/witness-seed.bin"
+  docker run --rm -v cactus_sunlight-data:/var/lib/sunlight -v /tmp/cactus-keys:/keys:ro \
+    alpine sh -c "mkdir -p /var/lib/sunlight && cp /keys/witness-seed.bin /var/lib/sunlight/witness-seed.bin && chmod 600 /var/lib/sunlight/witness-seed.bin"
 fi
+
+rm -rf /tmp/cactus-keys
 
 if docker compose version >/dev/null 2>&1; then
   COMPOSE_CMD="docker compose"
