@@ -30,4 +30,4 @@ setup: build
 	./deploy.sh --setup $(DEPLOY_FLAGS)
 
 clean:
-	rm -rf .cactus-src bin
+	rm -rf .cactus-src bin out

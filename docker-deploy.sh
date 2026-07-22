@@ -4,6 +4,18 @@ DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
 source "$DEPLOY_DIR/config.sh"
 
+GO="${GO:-$HOME/go/bin/gotip}"
+if ! command -v "$GO" >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
+  GO=go
+fi
+
+OUT_DIR="$DEPLOY_DIR/out"
+mkdir -p "$OUT_DIR"
+
+echo "==> Building cactus-cli and requestmtc binaries to $OUT_DIR..."
+(cd "$CACTUS_DIR" && GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/cactus-cli" ./cmd/cactus-cli)
+GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/requestmtc" "$DEPLOY_DIR/data/requestmtc.go"
+
 docker save cactus:local   | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "gunzip | docker load"
 
 docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "gunzip | docker load"
@@ -15,8 +27,8 @@ gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJEC
 # Override with custom configs from cactus-deploy:
 gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
-gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-mtc-batch.sh" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh"
+gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-mtc-batch.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo cp ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && sudo chmod +x /var/lib/toolbox/bin/cactus-cli /var/lib/toolbox/bin/requestmtc"
 
 # Populate secrets into Docker volumes and run compose up:
 gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- bash << REMOTE
