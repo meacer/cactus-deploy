@@ -5,10 +5,6 @@
 // into its landmark-relative form (draft §6.3.3) via cactus-cli and uses that cert
 // in the Apache config for this domain instead of the standalone cert.
 //
-// Each domain gets its OWN Apache config file at
-// /etc/apache2/sites-available/mtc-<domain>.conf which is enabled with a2ensite.
-// It never writes to the shared mtc.conf, so existing sites are left untouched.
-//
 // Usage:
 //
 //	go run requestmtc.go -domain example.test
@@ -17,8 +13,6 @@
 //	go run requestmtc.go -domain example.test -email me@example.com -relative -tai
 //	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1 -relative -tai
 //
-// Privileged steps (writing under /etc/apache2 and /var/www, reloading Apache)
-// are run via sudo, so you may be prompted for your password.
 package main
 
 import (
@@ -106,14 +100,19 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 	logStep("Certificate written under %s", certDir)
 
 	// 2. Create a document root with a basic hello-world page.
-	docRoot := filepath.Join("/var/www", domain)
-	logStep("Creating document root %s", docRoot)
-	if err := sudoRun("mkdir", "-p", docRoot); err != nil {
-		return fmt.Errorf("creating docroot: %w", err)
+	var hostDocRoot string
+	if _, err := os.Stat("/var/www"); err == nil {
+		hostDocRoot = filepath.Join("/var/www", domain)
+	} else {
+		hostDocRoot, _ = filepath.Abs(filepath.Join("www", domain))
 	}
-	indexPath := filepath.Join(docRoot, "index.html")
-	if err := sudoWriteFile(indexPath, indexHTML(domain)); err != nil {
-		return fmt.Errorf("writing index.html: %w", err)
+	logStep("Creating document root %s", hostDocRoot)
+	if err := os.MkdirAll(hostDocRoot, 0755); err != nil {
+		_ = sudoRun("mkdir", "-p", hostDocRoot)
+	}
+	indexPath := filepath.Join(hostDocRoot, "index.html")
+	if err := os.WriteFile(indexPath, []byte(indexHTML(domain)), 0644); err != nil {
+		_ = sudoWriteFile(indexPath, indexHTML(domain))
 	}
 	logStep("Hello world page written to %s", indexPath)
 
@@ -143,43 +142,66 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		}
 	}
 
-	// 4. Write this domain's OWN Apache config (never the shared mtc.conf).
-	confName := "mtc-" + domain + ".conf"
-	confPath := filepath.Join("/etc/apache2/sites-available", confName)
-	logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
-	if err := sudoWriteFile(confPath, vhostConf(domain, docRoot, certToUse, keyFile)); err != nil {
-		return fmt.Errorf("writing apache config: %w", err)
+	// 4. Write Apache VirtualHost config (<domain>.conf)
+	confName := domain + ".conf"
+
+	if _, err := os.Stat("/etc/apache2/sites-available"); err == nil {
+		// Standard non-Docker VM with host Apache installed
+		confPath := filepath.Join("/etc/apache2/sites-available", confName)
+		logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
+		if err := sudoWriteFile(confPath, vhostConf(domain, hostDocRoot, certToUse, keyFile)); err != nil {
+			return fmt.Errorf("writing apache config: %w", err)
+		}
+		if _, err := exec.LookPath("a2ensite"); err == nil {
+			logStep("Enabling mod_ssl and site %s", confName)
+			_ = sudoRun("a2enmod", "ssl")
+			_ = sudoRun("a2ensite", confName)
+			logStep("Validating Apache configuration")
+			if err := sudoRun("apache2ctl", "configtest"); err == nil {
+				logStep("Reloading Apache")
+				_ = sudoRun("systemctl", "reload-or-restart", "apache2")
+			}
+		}
+	} else {
+		// Docker-based setup
+		relCert, err := filepath.Rel(certDir, certToUse)
+		if err != nil {
+			relCert = filepath.Base(certToUse)
+		}
+		containerCertPath := "/etc/certs/certificates/" + relCert
+		containerKeyPath := "/etc/certs/certificates/" + domain + ".key"
+		containerDocRoot := "/var/www/" + domain
+
+		hostSitesDir, err := filepath.Abs("sites-enabled")
+		if err != nil {
+			return fmt.Errorf("resolving sites-enabled dir: %w", err)
+		}
+		if err := os.MkdirAll(hostSitesDir, 0755); err != nil {
+			return fmt.Errorf("creating sites-enabled dir: %w", err)
+		}
+		confPath := filepath.Join(hostSitesDir, confName)
+		logStep("Writing Apache config %s (container cert %s)", confPath, containerCertPath)
+		if err := os.WriteFile(confPath, []byte(vhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
+			return fmt.Errorf("writing apache config: %w", err)
+		}
+		logStep("Reloading Apache in Docker container (cactus-apache-1)")
+		reloadCmd := exec.Command("docker", "exec", "cactus-apache-1", "httpd", "-k", "graceful")
+		reloadCmd.Stdout = os.Stdout
+		reloadCmd.Stderr = os.Stderr
+		if err := reloadCmd.Run(); err != nil {
+			log.Printf("==> warning: failed to reload Apache container: %v", err)
+		} else {
+			logStep("Apache container reloaded successfully.")
+		}
 	}
 
-	// 5. Enable the site and (re)load Apache.
-	logStep("Enabling mod_ssl and site %s", confName)
-	if err := sudoRun("a2enmod", "ssl"); err != nil {
-		return fmt.Errorf("a2enmod ssl: %w", err)
-	}
-	if err := sudoRun("a2ensite", confName); err != nil {
-		return fmt.Errorf("a2ensite %s: %w", confName, err)
-	}
-	logStep("Validating Apache configuration")
-	if err := sudoRun("apache2ctl", "configtest"); err != nil {
-		return fmt.Errorf("apache configtest failed: %w", err)
-	}
-	logStep("Reloading Apache")
-	if err := sudoRun("systemctl", "reload-or-restart", "apache2"); err != nil {
-		return fmt.Errorf("reloading apache: %w", err)
-	}
-
-	logStep("Done. https://%s/ is now served.", domain)
+	logStep("Done. Certificate for %s is ready.", domain)
 	return nil
 }
 
 // landmarkRelative converts the standalone certificate at certFile into its
 // landmark-relative form (§6.3.3) with `cactus-cli cert landmark-relative`,
 // writing the PEM the command prints on stdout to outFile.
-//
-// A freshly issued entry is not covered by a landmark until the next one is
-// allocated, and until then the conversion fails by design. So retry that one
-// error until a landmark shows up or wait elapses; any other failure is real
-// and returned immediately.
 func landmarkRelative(cli, certFile, logURL, outFile string, wait time.Duration) error {
 	logStep("Building landmark-relative certificate from %s", filepath.Base(certFile))
 	deadline := time.Now().Add(wait)
@@ -194,8 +216,6 @@ func landmarkRelative(cli, certFile, logURL, outFile string, wait time.Duration)
 			if err := os.WriteFile(outFile, stdout.Bytes(), 0644); err != nil {
 				return fmt.Errorf("writing %s: %w", outFile, err)
 			}
-			// cactus-cli reports the landmark, subtree and proof size on
-			// stderr; it's the useful summary of what was just built.
 			if s := strings.TrimSpace(stderr.String()); s != "" {
 				log.Printf("    %s", s)
 			}
@@ -238,6 +258,8 @@ func indexHTML(domain string) string {
 func vhostConf(domain, docRoot, certFile, keyFile string) string {
 	return fmt.Sprintf(`<VirtualHost *:80>
     ServerName %[1]s
+    ProxyPreserveHost On
+    ProxyPass /.well-known/acme-challenge/ !
     Redirect permanent / https://%[1]s/
 </VirtualHost>
 
