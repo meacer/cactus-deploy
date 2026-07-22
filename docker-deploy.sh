@@ -105,6 +105,30 @@ TIMER
 sudo systemctl daemon-reload
 sudo systemctl enable --now request-mtc-cron.timer
 
+# Configure systemd service for request-certs.sh loop
+sudo tee /etc/systemd/system/request-certs.service >/dev/null << SERVICE
+[Unit]
+Description=Continuous certificate request loop
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/meacer/docker
+ExecStart=/bin/bash /home/meacer/docker/request-certs.sh
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+sudo systemctl daemon-reload
+sudo systemctl enable request-certs.service
+if ! systemctl is-active --quiet request-certs.service; then
+  echo "==> Starting request-certs.service..."
+  sudo systemctl start request-certs.service
+fi
+
 cd ~/docker
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d
 REMOTE
