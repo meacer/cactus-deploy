@@ -32,7 +32,7 @@ gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compo
 gcloud compute scp --recurse "$OUT_DIR/www" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-mtc-batch.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo cp ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && sudo chmod +x /var/lib/toolbox/bin/cactus-cli /var/lib/toolbox/bin/requestmtc"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-mtc-batch.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo install -m 0755 ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/"
 
 LOCAL_TMP_KEYS="$(mktemp -d)"
 trap 'rm -rf "$LOCAL_TMP_KEYS"' EXIT
