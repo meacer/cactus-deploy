@@ -13,7 +13,10 @@ run_requestmtc() {
     local domain="$1"
     shift
     echo "==> [$(date -u)] Requesting MTC cert for ${domain} $*..."
-    "$REQUESTMTC_CMD" -domain "$domain" "$@" || echo "==> warning: failed to request cert for ${domain}"
+    if ! "$REQUESTMTC_CMD" -domain "$domain" "$@"; then
+        echo "==> ERROR: failed to request cert for ${domain}" >&2
+        exit 1
+    fi
 }
 
 run_requestmtc "standalone.demo.mtcs.dev"
