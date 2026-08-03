@@ -25,8 +25,8 @@
     "listen": "0.0.0.0:14090"
   },
   "landmarks": {
-    "time_between_landmarks_ms": 60000,
-    "max_cert_lifetime_ms": 3600000
+    "time_between_landmarks_ms": 3600000,
+    "max_cert_lifetime_ms": 604800000
   },
   "ca_cosigner_quorum": {
     "mirrors": [
