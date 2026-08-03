@@ -13,7 +13,7 @@ OUT_DIR="$DEPLOY_DIR/out"
 mkdir -p "$OUT_DIR"
 
 # Generate mirror index HTML page locally before deployment:
-"$GO" run "$DEPLOY_DIR/data/generatemirrorindex.go" -config "$DEPLOY_DIR/data/cactus-config-docker.json" -out "$OUT_DIR/www/mirror1/index.html"
+"$GO" run "$DEPLOY_DIR/data/generatemirrorindex.go" -config "$DEPLOY_DIR/data/cactus-config-docker.json" -key "$DEPLOY_DIR/keys/witness-cosigner.pem" -out "$OUT_DIR/www/mirror1/index.html"
 
 echo "==> Building cactus-cli and requestmtc binaries to $OUT_DIR..."
 (cd "$CACTUS_DIR" && GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/cactus-cli" ./cmd/cactus-cli)
