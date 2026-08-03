@@ -26,8 +26,8 @@
   },
   "data_dir": "/var/lib/cactus",
   "landmarks": {
-    "max_cert_lifetime_ms": 3600000,
-    "time_between_landmarks_ms": 60000
+    "max_cert_lifetime_ms": 604800000,
+    "time_between_landmarks_ms": 3600000
   },
   "log": {
     "checkpoint_period_ms": 1000,
