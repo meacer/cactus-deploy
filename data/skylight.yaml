@@ -11,3 +11,8 @@ witnesses:
   # Host header matching for mirror1.test.mtcs.dev
   - monitoringprefix: https://mirror1.test.mtcs.dev
     localdirectory: /var/lib/sunlight/public
+
+logs:
+  - shortname: keepalive
+    monitoringprefix: https://skylight/keepalive
+    localdirectory: /var/lib/sunlight/keepalive-public
