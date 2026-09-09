@@ -155,4 +155,16 @@ fi
 
 cd ~/docker
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d
+
+for domain in ca1.test.mtcs.dev mirror1.test.mtcs.dev; do
+  if ! sudo test -f "./letsencrypt/live/\$domain/fullchain.pem"; then
+    echo "==> Requesting Let's Encrypt certificate for \$domain..."
+    \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml exec -T certbot \
+      certbot certonly --webroot -w /var/www/certbot -d "\$domain" \
+      --non-interactive --agree-tos -m meacer@chromium.org < /dev/null
+  fi
+done
+
+echo "==> Reloading Apache container to pick up SSL certificates..."
+\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml exec -T apache httpd -k graceful < /dev/null
 REMOTE
