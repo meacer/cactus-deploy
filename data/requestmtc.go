@@ -38,7 +38,7 @@ import (
 const landmarkRetryInterval = 15 * time.Second
 
 func main() {
-	domain := flag.String("domain", "", "domain to request a certificate for (required)")
+	domain := flag.String("domain", "", "comma-separated domain(s) to request certificate(s) for (required)")
 	email := flag.String("email", "you@example.com", "ACME account email")
 	server := flag.String("server", "http://localhost:14000/directory", "ACME server directory URL")
 	certPath := flag.String("path", "./certs", "lego --path directory (certs land in <path>/certificates)")
@@ -49,18 +49,33 @@ func main() {
 	tai := flag.Bool("tai", false, "whether to attach a TAI CERTIFICATE PROPERTIES block to the landmark-relative cert")
 	flag.Parse()
 
-	if *domain == "" {
+	var domains []string
+	for _, d := range strings.Split(*domain, ",") {
+		d = strings.TrimSpace(d)
+		if d != "" {
+			domains = append(domains, d)
+		}
+	}
+	if len(domains) == 0 {
 		fmt.Fprintln(os.Stderr, "error: -domain is required")
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	if err := run(*domain, *email, *server, *certPath, *logURL, *cli, *landmarkWait, *relative, *tai); err != nil {
+	if err := run(domains, *email, *server, *certPath, *logURL, *cli, *landmarkWait, *relative, *tai); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
 
-func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative, tai bool) error {
+type stagedCert struct {
+	domain   string
+	certFile string
+	keyFile  string
+	pemFile  string
+	lrFile   string
+}
+
+func run(domains []string, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative, tai bool) error {
 	if relative && logURL == "" {
 		return fmt.Errorf("-relative requires a non-empty -log URL")
 	}
@@ -87,24 +102,45 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		}
 	}
 
-	// 1. Request the certificate with lego into stagingDir.
-	logStep("Requesting certificate for %s from %s", domain, server)
-	lego := exec.Command("lego",
-		"--server", server,
-		"--email", email,
-		"--domains", domain,
-		"--accept-tos",
-		"--http",
-		"--pem",
-		"--path", stagingDir,
-		"run",
-	)
-	lego.Stdout = os.Stdout
-	lego.Stderr = os.Stderr
-	log.Printf("running: %s", strings.Join(lego.Args, " "))
-	if err := lego.Run(); err != nil {
-		return fmt.Errorf("lego run failed (see output above): %w", err)
+	stagingCertDir := filepath.Join(stagingDir, "certificates")
+	var staged []stagedCert
+
+	// 1. Request the standalone certificate with lego for all domains upfront
+	// so every entry is logged before we start waiting for the next landmark.
+	for _, domain := range domains {
+		logStep("Requesting certificate for %s from %s", domain, server)
+		lego := exec.Command("lego",
+			"--server", server,
+			"--email", email,
+			"--domains", domain,
+			"--accept-tos",
+			"--http",
+			"--pem",
+			"--path", stagingDir,
+			"run",
+		)
+		lego.Stdout = os.Stdout
+		lego.Stderr = os.Stderr
+		log.Printf("running: %s", strings.Join(lego.Args, " "))
+		if err := lego.Run(); err != nil {
+			return fmt.Errorf("lego run for %s failed (see output above): %w", domain, err)
+		}
+
+		sc := stagedCert{
+			domain:   domain,
+			certFile: filepath.Join(stagingCertDir, domain+".crt"),
+			keyFile:  filepath.Join(stagingCertDir, domain+".key"),
+			pemFile:  filepath.Join(stagingCertDir, domain+".pem"),
+			lrFile:   filepath.Join(stagingCertDir, domain+"-landmark-relative.pem"),
+		}
+		for _, f := range []string{sc.certFile, sc.keyFile, sc.pemFile} {
+			if _, err := os.Stat(f); err != nil {
+				return fmt.Errorf("expected cert artifact missing in staging: %s", f)
+			}
+		}
+		staged = append(staged, sc)
 	}
+	logStep("All %d certificate(s) staged under %s", len(staged), stagingCertDir)
 
 	// Persist any updated ACME account state back to certPath/accounts.
 	stagingAccountsDir := filepath.Join(stagingDir, "accounts")
@@ -114,150 +150,152 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		}
 	}
 
-	stagingCertDir := filepath.Join(stagingDir, "certificates")
-	stagingCertFile := filepath.Join(stagingCertDir, domain+".crt")
-	stagingKeyFile := filepath.Join(stagingCertDir, domain+".key")
-	stagingPemFile := filepath.Join(stagingCertDir, domain+".pem")
-	for _, f := range []string{stagingCertFile, stagingKeyFile, stagingPemFile} {
-		if _, err := os.Stat(f); err != nil {
-			return fmt.Errorf("expected cert artifact missing in staging: %s", f)
-		}
-	}
-	logStep("Certificate staged under %s", stagingCertDir)
-
-	// 2. If -relative is set, convert the staged standalone cert into its
+	// 2. If -relative is set, convert all staged standalone certs into their
 	// landmark-relative form before touching the live cert directory or Apache.
-	var stagingLRFile string
+	// Since all entries were logged in Step 1, once the first domain is covered
+	// by the newly allocated landmark, all subsequent domains will convert immediately.
 	if relative {
-		inputPem := stagingPemFile
-		if tai {
-			withPropsFile, err := prepareTAIInput(stagingPemFile, stagingCertDir, domain)
-			if err != nil {
-				return fmt.Errorf("attaching TAI properties: %w", err)
+		for i := range staged {
+			sc := &staged[i]
+			inputPem := sc.pemFile
+			if tai {
+				withPropsFile, err := prepareTAIInput(sc.pemFile, stagingCertDir, sc.domain)
+				if err != nil {
+					return fmt.Errorf("attaching TAI properties for %s: %w", sc.domain, err)
+				}
+				inputPem = withPropsFile
+				logStep("Standalone cert with TAI properties written to %s", withPropsFile)
 			}
-			inputPem = withPropsFile
-			logStep("Standalone cert with TAI properties written to %s", withPropsFile)
-		}
 
-		stagingLRFile = filepath.Join(stagingCertDir, domain+"-landmark-relative.pem")
-		if err := landmarkRelative(cli, inputPem, logURL, stagingLRFile, landmarkWait); err != nil {
-			return fmt.Errorf("obtaining landmark-relative certificate for %s: %w", domain, err)
+			if err := landmarkRelative(cli, inputPem, logURL, sc.lrFile, landmarkWait); err != nil {
+				return fmt.Errorf("obtaining landmark-relative certificate for %s: %w", sc.domain, err)
+			}
 		}
 	}
 
-	// 3. Install the ready certificate and key into liveCertDir.
+	// 3. Install the ready certificates and keys into liveCertDir, configure
+	// document roots, and write Apache VirtualHost configs.
 	if err := os.MkdirAll(liveCertDir, 0755); err != nil {
 		return fmt.Errorf("creating live cert dir %s: %w", liveCertDir, err)
 	}
-	keyBytes, err := os.ReadFile(stagingKeyFile)
-	if err != nil {
-		return fmt.Errorf("reading staged key: %w", err)
-	}
-	keyFile := filepath.Join(liveCertDir, domain+".key")
-	if err := writeFileAtomic(keyFile, keyBytes, 0600); err != nil {
-		return fmt.Errorf("installing key %s: %w", keyFile, err)
+
+	for _, sc := range staged {
+		domain := sc.domain
+		keyBytes, err := os.ReadFile(sc.keyFile)
+		if err != nil {
+			return fmt.Errorf("reading staged key for %s: %w", domain, err)
+		}
+		keyFile := filepath.Join(liveCertDir, domain+".key")
+		if err := writeFileAtomic(keyFile, keyBytes, 0600); err != nil {
+			return fmt.Errorf("installing key %s: %w", keyFile, err)
+		}
+
+		var certToUse string
+		if relative {
+			lrBytes, err := os.ReadFile(sc.lrFile)
+			if err != nil {
+				return fmt.Errorf("reading staged landmark-relative cert for %s: %w", domain, err)
+			}
+			lrFile := filepath.Join(liveCertDir, domain+"-landmark-relative.pem")
+			if err := writeFileAtomic(lrFile, lrBytes, 0644); err != nil {
+				return fmt.Errorf("installing landmark-relative cert %s: %w", lrFile, err)
+			}
+			// Also write the landmark-relative cert to .crt and .pem so no standalone
+			// certificate ever exists in liveCertDir for a relative domain.
+			certFile := filepath.Join(liveCertDir, domain+".crt")
+			if err := writeFileAtomic(certFile, lrBytes, 0644); err != nil {
+				return fmt.Errorf("installing cert %s: %w", certFile, err)
+			}
+			pemFile := filepath.Join(liveCertDir, domain+".pem")
+			if err := writeFileAtomic(pemFile, append(append([]byte(nil), lrBytes...), keyBytes...), 0600); err != nil {
+				return fmt.Errorf("installing pem %s: %w", pemFile, err)
+			}
+			certToUse = lrFile
+			logStep("Installed landmark-relative certificate to %s", lrFile)
+		} else {
+			certBytes, err := os.ReadFile(sc.certFile)
+			if err != nil {
+				return fmt.Errorf("reading staged cert for %s: %w", domain, err)
+			}
+			pemBytes, err := os.ReadFile(sc.pemFile)
+			if err != nil {
+				return fmt.Errorf("reading staged pem for %s: %w", domain, err)
+			}
+			certFile := filepath.Join(liveCertDir, domain+".crt")
+			if err := writeFileAtomic(certFile, certBytes, 0644); err != nil {
+				return fmt.Errorf("installing cert %s: %w", certFile, err)
+			}
+			pemFile := filepath.Join(liveCertDir, domain+".pem")
+			if err := writeFileAtomic(pemFile, pemBytes, 0600); err != nil {
+				return fmt.Errorf("installing pem %s: %w", pemFile, err)
+			}
+			certToUse = certFile
+			logStep("Installed standalone certificate to %s", certFile)
+		}
+
+		// Create a document root with a basic hello-world page.
+		var hostDocRoot string
+		if _, err := exec.LookPath("a2ensite"); err == nil {
+			hostDocRoot = filepath.Join("/var/www", domain)
+		} else {
+			hostDocRoot, _ = filepath.Abs(filepath.Join("www", domain))
+		}
+		logStep("Creating document root %s", hostDocRoot)
+		if err := os.MkdirAll(hostDocRoot, 0755); err != nil {
+			_ = sudoRun("mkdir", "-p", hostDocRoot)
+		}
+		indexPath := filepath.Join(hostDocRoot, "index.html")
+		if err := os.WriteFile(indexPath, []byte(indexHTML(domain)), 0644); err != nil {
+			_ = sudoWriteFile(indexPath, indexHTML(domain))
+		}
+		logStep("Hello world page written to %s", indexPath)
+
+		// Write Apache VirtualHost config (<domain>.conf)
+		confName := domain + ".conf"
+
+		if _, err := exec.LookPath("a2ensite"); err == nil {
+			// Standard non-Docker VM with host Apache installed
+			confPath := filepath.Join("/etc/apache2/sites-available", confName)
+			logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
+			if err := sudoWriteFile(confPath, vhostConf(domain, hostDocRoot, certToUse, keyFile)); err != nil {
+				return fmt.Errorf("writing apache config for %s: %w", domain, err)
+			}
+			logStep("Enabling mod_ssl and site %s", confName)
+			_ = sudoRun("a2enmod", "ssl")
+			_ = sudoRun("a2ensite", confName)
+		} else {
+			// Docker-based setup
+			relCert, err := filepath.Rel(liveCertDir, certToUse)
+			if err != nil {
+				relCert = filepath.Base(certToUse)
+			}
+			containerCertPath := "/etc/certs/certificates/" + relCert
+			containerKeyPath := "/etc/certs/certificates/" + domain + ".key"
+			containerDocRoot := "/var/www/" + domain
+
+			hostSitesDir, err := filepath.Abs("sites-enabled")
+			if err != nil {
+				return fmt.Errorf("resolving sites-enabled dir: %w", err)
+			}
+			if err := os.MkdirAll(hostSitesDir, 0755); err != nil {
+				return fmt.Errorf("creating sites-enabled dir: %w", err)
+			}
+			confPath := filepath.Join(hostSitesDir, confName)
+			logStep("Writing Apache config %s (container cert %s)", confPath, containerCertPath)
+			if err := os.WriteFile(confPath, []byte(vhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
+				return fmt.Errorf("writing apache config for %s: %w", domain, err)
+			}
+		}
 	}
 
-	var certToUse string
-	if relative {
-		lrBytes, err := os.ReadFile(stagingLRFile)
-		if err != nil {
-			return fmt.Errorf("reading staged landmark-relative cert: %w", err)
-		}
-		lrFile := filepath.Join(liveCertDir, domain+"-landmark-relative.pem")
-		if err := writeFileAtomic(lrFile, lrBytes, 0644); err != nil {
-			return fmt.Errorf("installing landmark-relative cert %s: %w", lrFile, err)
-		}
-		// Also write the landmark-relative cert to .crt and .pem so no standalone
-		// certificate ever exists in liveCertDir for a relative domain.
-		certFile := filepath.Join(liveCertDir, domain+".crt")
-		if err := writeFileAtomic(certFile, lrBytes, 0644); err != nil {
-			return fmt.Errorf("installing cert %s: %w", certFile, err)
-		}
-		pemFile := filepath.Join(liveCertDir, domain+".pem")
-		if err := writeFileAtomic(pemFile, append(append([]byte(nil), lrBytes...), keyBytes...), 0600); err != nil {
-			return fmt.Errorf("installing pem %s: %w", pemFile, err)
-		}
-		certToUse = lrFile
-		logStep("Installed landmark-relative certificate to %s", lrFile)
-	} else {
-		certBytes, err := os.ReadFile(stagingCertFile)
-		if err != nil {
-			return fmt.Errorf("reading staged cert: %w", err)
-		}
-		pemBytes, err := os.ReadFile(stagingPemFile)
-		if err != nil {
-			return fmt.Errorf("reading staged pem: %w", err)
-		}
-		certFile := filepath.Join(liveCertDir, domain+".crt")
-		if err := writeFileAtomic(certFile, certBytes, 0644); err != nil {
-			return fmt.Errorf("installing cert %s: %w", certFile, err)
-		}
-		pemFile := filepath.Join(liveCertDir, domain+".pem")
-		if err := writeFileAtomic(pemFile, pemBytes, 0600); err != nil {
-			return fmt.Errorf("installing pem %s: %w", pemFile, err)
-		}
-		certToUse = certFile
-		logStep("Installed standalone certificate to %s", certFile)
-	}
-
-	// 4. Create a document root with a basic hello-world page.
-	var hostDocRoot string
+	// 4. Reload Apache once after all configs are written.
 	if _, err := exec.LookPath("a2ensite"); err == nil {
-		hostDocRoot = filepath.Join("/var/www", domain)
-	} else {
-		hostDocRoot, _ = filepath.Abs(filepath.Join("www", domain))
-	}
-	logStep("Creating document root %s", hostDocRoot)
-	if err := os.MkdirAll(hostDocRoot, 0755); err != nil {
-		_ = sudoRun("mkdir", "-p", hostDocRoot)
-	}
-	indexPath := filepath.Join(hostDocRoot, "index.html")
-	if err := os.WriteFile(indexPath, []byte(indexHTML(domain)), 0644); err != nil {
-		_ = sudoWriteFile(indexPath, indexHTML(domain))
-	}
-	logStep("Hello world page written to %s", indexPath)
-
-	// 5. Write Apache VirtualHost config (<domain>.conf)
-	confName := domain + ".conf"
-
-	if _, err := exec.LookPath("a2ensite"); err == nil {
-		// Standard non-Docker VM with host Apache installed
-		confPath := filepath.Join("/etc/apache2/sites-available", confName)
-		logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
-		if err := sudoWriteFile(confPath, vhostConf(domain, hostDocRoot, certToUse, keyFile)); err != nil {
-			return fmt.Errorf("writing apache config: %w", err)
-		}
-		logStep("Enabling mod_ssl and site %s", confName)
-		_ = sudoRun("a2enmod", "ssl")
-		_ = sudoRun("a2ensite", confName)
 		logStep("Validating Apache configuration")
 		if err := sudoRun("apache2ctl", "configtest"); err == nil {
 			logStep("Reloading Apache")
 			_ = sudoRun("systemctl", "reload-or-restart", "apache2")
 		}
 	} else {
-		// Docker-based setup
-		relCert, err := filepath.Rel(liveCertDir, certToUse)
-		if err != nil {
-			relCert = filepath.Base(certToUse)
-		}
-		containerCertPath := "/etc/certs/certificates/" + relCert
-		containerKeyPath := "/etc/certs/certificates/" + domain + ".key"
-		containerDocRoot := "/var/www/" + domain
-
-		hostSitesDir, err := filepath.Abs("sites-enabled")
-		if err != nil {
-			return fmt.Errorf("resolving sites-enabled dir: %w", err)
-		}
-		if err := os.MkdirAll(hostSitesDir, 0755); err != nil {
-			return fmt.Errorf("creating sites-enabled dir: %w", err)
-		}
-		confPath := filepath.Join(hostSitesDir, confName)
-		logStep("Writing Apache config %s (container cert %s)", confPath, containerCertPath)
-		if err := os.WriteFile(confPath, []byte(vhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
-			return fmt.Errorf("writing apache config: %w", err)
-		}
 		logStep("Reloading Apache in Docker container (cactus-apache-1)")
 		reloadCmd := exec.Command("docker", "exec", "cactus-apache-1", "httpd", "-k", "graceful")
 		reloadCmd.Stdout = os.Stdout
@@ -269,7 +307,7 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		}
 	}
 
-	logStep("Done. Certificate for %s is ready.", domain)
+	logStep("Done. Certificate(s) for %s ready.", strings.Join(domains, ", "))
 	return nil
 }
 

@@ -19,8 +19,7 @@ run_requestmtc() {
 
 while true; do
     run_requestmtc "standalone.demo.mtcs.dev"
-    run_requestmtc "relative.demo.mtcs.dev" -relative
-    run_requestmtc "landmark-relative.demo.mtcs.dev" -relative
+    run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
 
     echo "==> [$(date -u)] Completed batch. Sleeping for 5 days (${INTERVAL_SECONDS}s)..."
     sleep "$INTERVAL_SECONDS"
