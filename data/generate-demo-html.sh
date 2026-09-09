@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Generates informative index.html pages for MTC demo domains from the output
-# of `cactus-cli cert text` and the log's `/landmarks` endpoint.
+# Generates well-formatted, clean index.html pages for MTC demo domains from
+# the output of `cactus-cli cert text` and the log's `/landmarks` endpoint.
 #
 # Usage:
 #   ./generate-demo-html.sh [domain ...]
@@ -33,9 +33,6 @@ find_covering_landmark() {
         return
     fi
 
-    # Parse landmarks list:
-    # Line 1: <last> <num_active>
-    # Line 2..(num_active+2): tree sizes in descending order from <last> down to <last - num_active>
     python3 -c '
 import sys
 
@@ -50,7 +47,6 @@ num_active = int(hdr[1])
 sizes = [int(x) for x in lines[1:num_active+2]]
 
 target = int(sys.argv[1])
-# Walk from oldest to newest (reverse of sizes list)
 for i in range(len(sizes) - 2, -1, -1):
     lm_num = last - i
     lm_size = sizes[i]
@@ -59,6 +55,26 @@ for i in range(len(sizes) - 2, -1, -1):
         print(f"{lm_num}|{prev_size}|{lm_size}")
         sys.exit(0)
 ' "$index" <<< "$LANDMARKS_RAW"
+}
+
+format_cert_text_html() {
+    python3 -c '
+import html, re, sys
+
+raw = sys.stdin.read()
+escaped = html.escape(raw)
+
+# Highlight top header line
+escaped = re.sub(r"^(Merkle Tree Certificate)", r"<span class=\"hl-header\">\1</span>", escaped, flags=re.M)
+# Highlight section headers
+escaped = re.sub(r"^(\s+)(extensions:|MTC proof:)", r"\1<span class=\"hl-section\">\2</span>", escaped, flags=re.M)
+# Highlight field labels
+escaped = re.sub(r"^(\s+)([a-zA-Z0-9 _-]+:)(\s+)", r"\1<span class=\"hl-key\">\2</span>\3", escaped, flags=re.M)
+# Highlight bullet items (cosigners)
+escaped = re.sub(r"^(\s+-\s+cosigner\s+)([0-9.]+)", r"\1<span class=\"hl-val\">\2</span>", escaped, flags=re.M)
+
+print(escaped, end="")
+'
 }
 
 for domain in "${DOMAINS[@]}"; do
@@ -72,6 +88,7 @@ for domain in "${DOMAINS[@]}"; do
     fi
 
     cert_text="$("$CACTUS_CLI" cert text "$cert_file")"
+    formatted_cert_text="$(format_cert_text_html <<< "$cert_text")"
 
     # Extract fields from cactus-cli cert text output
     serial_line="$(grep -E '^[[:space:]]*serial:' <<< "$cert_text" | sed 's/^[[:space:]]*serial:[[:space:]]*//')"
@@ -89,11 +106,13 @@ for domain in "${DOMAINS[@]}"; do
 
     is_relative=false
     badge_class="badge-standalone"
-    badge_text="Standalone MTC Certificate"
+    badge_text="Standalone MTC"
+    summary_desc="Verified via ${sigs} ML-DSA-44 cosigner signatures over checkpoint subtree <code>${subtree}</code>"
     if [[ "$form" == *"landmark-relative"* ]]; then
         is_relative=true
         badge_class="badge-relative"
-        badge_text="Landmark-Relative MTC Certificate"
+        badge_text="Landmark-Relative MTC"
+        summary_desc="Signature-free MTC verified via ${inc_proof} Merkle inclusion proof to a trusted landmark subtree"
     fi
 
     landmark_info="$(find_covering_landmark "${entry_index:-0}")"
@@ -116,26 +135,60 @@ for domain in "${DOMAINS[@]}"; do
     mkdir -p "$doc_root"
     out_html="${doc_root}/index.html"
 
-    landmark_card=""
+    landmark_row=""
     if [[ -n "$lm_num" ]]; then
-        landmark_card=$(cat <<EOF
-      <div class="card highlight-card">
-        <div class="card-label">Covering Landmark</div>
-        <div class="card-value">Landmark #${lm_num}</div>
-        <div class="card-sub">
-          Covers entries <code>[${lm_prev}, ${lm_size})</code> &bull; Tree size: <code>${lm_size}</code>
-          ${lm_taid:+<br>Landmark Trust Anchor ID: <code>${lm_taid}</code>}
-        </div>
-      </div>
+        landmark_row=$(cat <<EOF
+        <tr>
+          <th>Covering Landmark</th>
+          <td>
+            <span class="val-strong">Landmark #${lm_num}</span>
+            <span class="meta">covers log entries <code>[${lm_prev}, ${lm_size})</code> &middot; tree size <code>${lm_size}</code></span>
+            ${lm_taid:+<div class="meta-sub">Trust Anchor ID: <code>${lm_taid}</code></div>}
+          </td>
+        </tr>
 EOF
 )
     else
-        landmark_card=$(cat <<EOF
-      <div class="card">
-        <div class="card-label">Covering Landmark</div>
-        <div class="card-value">Pending next hourly allocation</div>
-        <div class="card-sub">Entry index <code>${entry_index}</code> is newer than the latest published landmark</div>
-      </div>
+        landmark_row=$(cat <<EOF
+        <tr>
+          <th>Covering Landmark</th>
+          <td><span class="meta">Pending next hourly landmark allocation</span></td>
+        </tr>
+EOF
+)
+    fi
+
+    cosigner_row=""
+    if [[ "$is_relative" == "false" ]]; then
+        cosigner_list=""
+        while IFS= read -r line; do
+            if [[ "$line" =~ -[[:space:]]*cosigner[[:space:]]+([^[:space:]]+)[[:space:]]*\(([0-9]+)-byte[[:space:]]+signature\) ]]; then
+                cos_id="${BASH_REMATCH[1]}"
+                sig_bytes="${BASH_REMATCH[2]}"
+                role="Mirror"
+                if [[ "$cos_id" == "$ca_id" ]]; then
+                    role="CA"
+                fi
+                cosigner_list="${cosigner_list}<div class=\"meta-sub\"><code>${cos_id}</code> (${role}, ${sig_bytes} B ML-DSA-44)</div>"
+            fi
+        done <<< "$cert_text"
+
+        cosigner_row=$(cat <<EOF
+        <tr>
+          <th>Cosigner Signatures</th>
+          <td>
+            <span class="val-strong">${sigs} signature(s)</span>
+            ${cosigner_list}
+          </td>
+        </tr>
+EOF
+)
+    else
+        cosigner_row=$(cat <<EOF
+        <tr>
+          <th>Cosigner Signatures</th>
+          <td><code>0</code> <span class="meta">(omitted; relies on pre-distributed landmark subtree hash)</span></td>
+        </tr>
 EOF
 )
     fi
@@ -146,209 +199,220 @@ EOF
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${domain} — Merkle Tree Certificate Demo</title>
+  <title>${domain}</title>
   <style>
-    :root {
-      --bg: #0f172a;
-      --surface: #1e293b;
-      --surface-highlight: #1e3a5f;
-      --border: #334155;
-      --text: #f8fafc;
-      --muted: #94a3b8;
-      --accent: #38bdf8;
-      --green-bg: rgba(34, 197, 94, 0.15);
-      --green-text: #4ade80;
-      --amber-bg: rgba(245, 158, 11, 0.15);
-      --amber-text: #fbbf24;
-    }
-    * { box-sizing: border-box; }
     body {
       margin: 0;
       padding: 2.5rem 1.25rem;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.5;
+      background: #f6f8fa;
+      color: #1f2937;
+      line-height: 1.55;
     }
     .container {
-      max-width: 860px;
+      max-width: 760px;
       margin: 0 auto;
     }
-    header {
-      margin-bottom: 2rem;
-    }
-    .nav {
+    nav {
       display: flex;
-      gap: 0.75rem;
+      gap: 0.5rem;
       flex-wrap: wrap;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.5rem;
     }
-    .nav a {
-      color: var(--muted);
+    nav a {
+      color: #4b5563;
       text-decoration: none;
       font-size: 0.875rem;
       padding: 0.35rem 0.75rem;
       border-radius: 6px;
-      border: 1px solid var(--border);
-      background: var(--surface);
-      transition: all 0.15s ease;
+      background: #ffffff;
+      border: 1px solid #d1d5db;
     }
-    .nav a:hover, .nav a.active {
-      color: var(--accent);
-      border-color: var(--accent);
+    nav a:hover {
+      border-color: #9ca3af;
+      color: #111827;
+    }
+    nav a.active {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #93c5fd;
+      font-weight: 600;
+    }
+    .panel {
+      background: #ffffff;
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      padding: 1.5rem 1.75rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+      margin-bottom: 1.25rem;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 0.4rem;
     }
     h1 {
-      font-size: 1.75rem;
-      margin: 0 0 0.65rem 0;
-      letter-spacing: -0.02em;
+      font-size: 1.35rem;
+      font-weight: 600;
+      color: #111827;
+      margin: 0;
     }
     .badge {
       display: inline-block;
-      padding: 0.25rem 0.75rem;
+      padding: 0.2rem 0.65rem;
       border-radius: 9999px;
-      font-size: 0.825rem;
+      font-size: 0.78rem;
       font-weight: 600;
     }
     .badge-relative {
-      background: var(--green-bg);
-      color: var(--green-text);
-      border: 1px solid rgba(74, 222, 128, 0.3);
+      background: #ecfdf5;
+      color: #047857;
+      border: 1px solid #a7f3d0;
     }
     .badge-standalone {
-      background: var(--amber-bg);
-      color: var(--amber-text);
-      border: 1px solid rgba(251, 191, 36, 0.3);
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
     }
-    .grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    .card {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.15rem 1.25rem;
-    }
-    .highlight-card {
-      background: var(--surface-highlight);
-      border-color: rgba(56, 189, 248, 0.35);
-    }
-    .card-label {
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
-      color: var(--muted);
-      margin-bottom: 0.35rem;
-    }
-    .card-value {
-      font-size: 1.35rem;
-      font-weight: 700;
-      color: var(--text);
-      margin-bottom: 0.25rem;
-    }
-    .card-sub {
-      font-size: 0.825rem;
-      color: var(--muted);
-    }
-    code {
-      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-      color: var(--accent);
-      font-size: 0.85em;
-    }
-    .section {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      padding: 1.25rem;
-      margin-bottom: 1.5rem;
-    }
-    .section h2 {
-      font-size: 1rem;
-      margin: 0 0 0.85rem 0;
-      color: var(--muted);
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
+    .subtitle {
+      color: #4b5563;
+      font-size: 0.92rem;
+      margin: 0 0 1.25rem 0;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid #f3f4f6;
     }
     table {
       width: 100%;
       border-collapse: collapse;
-      font-size: 0.925rem;
+      font-size: 0.92rem;
     }
     th, td {
       text-align: left;
-      padding: 0.55rem 0.5rem;
-      border-bottom: 1px solid rgba(255,255,255,0.06);
+      vertical-align: top;
+      padding: 0.65rem 0.25rem;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    tr:last-child th, tr:last-child td {
+      border-bottom: none;
     }
     th {
-      color: var(--muted);
+      width: 32%;
+      color: #4b5563;
       font-weight: 500;
-      width: 34%;
+    }
+    td {
+      color: #111827;
+    }
+    .val-strong {
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 0.86rem;
+      margin-left: 0.35rem;
+    }
+    .meta-sub {
+      color: #6b7280;
+      font-size: 0.83rem;
+      margin-top: 0.2rem;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.86em;
+      background: #f3f4f6;
+      color: #0f172a;
+      padding: 0.12rem 0.38rem;
+      border-radius: 4px;
+      border: 1px solid #e5e7eb;
+    }
+    h2 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #4b5563;
+      margin: 0 0 0.75rem 0;
     }
     pre {
       margin: 0;
-      padding: 1rem;
-      background: #090e17;
-      border: 1px solid var(--border);
-      border-radius: 8px;
+      padding: 1.1rem 1.25rem;
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 6px;
       overflow-x: auto;
-      font-size: 0.84rem;
-      line-height: 1.45;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      border: none;
+      font-size: inherit;
+    }
+    .hl-header {
+      color: #f8fafc;
+      font-weight: 600;
+    }
+    .hl-section {
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .hl-key {
+      color: #7dd3fc;
+    }
+    .hl-val {
+      color: #fde68a;
     }
   </style>
 </head>
 <body>
   <div class="container">
-    <header>
-      <div class="nav">
-        <a href="https://standalone.demo.mtcs.dev/" class="$([ "$domain" = "standalone.demo.mtcs.dev" ] && echo active || true)">standalone.demo.mtcs.dev</a>
-        <a href="https://relative.demo.mtcs.dev/" class="$([ "$domain" = "relative.demo.mtcs.dev" ] && echo active || true)">relative.demo.mtcs.dev</a>
-        <a href="https://landmark-relative.demo.mtcs.dev/" class="$([ "$domain" = "landmark-relative.demo.mtcs.dev" ] && echo active || true)">landmark-relative.demo.mtcs.dev</a>
+    <nav>
+      <a href="https://standalone.demo.mtcs.dev/" class="$([ "$domain" = "standalone.demo.mtcs.dev" ] && echo active || true)">standalone.demo.mtcs.dev</a>
+      <a href="https://relative.demo.mtcs.dev/" class="$([ "$domain" = "relative.demo.mtcs.dev" ] && echo active || true)">relative.demo.mtcs.dev</a>
+      <a href="https://landmark-relative.demo.mtcs.dev/" class="$([ "$domain" = "landmark-relative.demo.mtcs.dev" ] && echo active || true)">landmark-relative.demo.mtcs.dev</a>
+    </nav>
+
+    <div class="panel">
+      <div class="title-row">
+        <h1>${domain}</h1>
+        <span class="badge ${badge_class}">${badge_text}</span>
       </div>
-      <h1>${domain}</h1>
-      <span class="badge ${badge_class}">${badge_text}</span>
-    </header>
+      <p class="subtitle">${summary_desc}</p>
 
-    <div class="grid">
-      <div class="card highlight-card">
-        <div class="card-label">Issuance Log Entry Index</div>
-        <div class="card-value">#${entry_index}</div>
-        <div class="card-sub">Log #${log_number} &bull; Issuer CA ID: <code>${ca_id}</code></div>
-      </div>
-
-${landmark_card}
-    </div>
-
-    <div class="section">
-      <h2>MTC Proof &amp; Certificate Properties</h2>
       <table>
         <tr>
-          <th>Certificate Form</th>
-          <td><code>${form}</code></td>
+          <th>Issuance Log Entry</th>
+          <td>
+            <span class="val-strong">Index #${entry_index}</span>
+            <span class="meta">in Log #${log_number} &middot; CA ID <code>${ca_id}</code></span>
+          </td>
         </tr>
+${landmark_row}
         <tr>
-          <th>Proof Subtree Range</th>
-          <td><code>${subtree}</code></td>
+          <th>Proof Subtree</th>
+          <td>
+            <code>${subtree}</code>
+            <span class="meta">&middot; ${inc_proof} inclusion proof</span>
+          </td>
         </tr>
+${cosigner_row}
         <tr>
-          <th>Inclusion Proof</th>
-          <td><code>${inc_proof}</code></td>
-        </tr>
-        <tr>
-          <th>Cosigner Signatures</th>
-          <td><code>${sigs}</code></td>
-        </tr>
-        <tr>
-          <th>Validity Window</th>
-          <td><code>${not_before}</code> &rarr; <code>${not_after}</code></td>
+          <th>Validity Period</th>
+          <td><code>${not_before}</code> &ndash; <code>${not_after}</code></td>
         </tr>
       </table>
     </div>
 
-    <div class="section">
-      <h2>Full Output of <code>cactus-cli cert text</code></h2>
-      <pre><code>${cert_text}</code></pre>
+    <div class="panel">
+      <h2>cactus-cli cert text</h2>
+      <pre><code>${formatted_cert_text}</code></pre>
     </div>
   </div>
 </body>
