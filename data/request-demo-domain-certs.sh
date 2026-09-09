@@ -22,4 +22,9 @@ run_requestmtc() {
 run_requestmtc "standalone.demo.mtcs.dev"
 run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/generate-demo-html.sh" ]]; then
+    bash "${SCRIPT_DIR}/generate-demo-html.sh"
+fi
+
 echo "==> [$(date -u)] Completed MTC batch request."

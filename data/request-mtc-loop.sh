@@ -21,6 +21,11 @@ while true; do
     run_requestmtc "standalone.demo.mtcs.dev"
     run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
 
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [[ -f "${SCRIPT_DIR}/generate-demo-html.sh" ]]; then
+        bash "${SCRIPT_DIR}/generate-demo-html.sh" || echo "==> warning: generate-demo-html.sh failed"
+    fi
+
     echo "==> [$(date -u)] Completed batch. Sleeping for 5 days (${INTERVAL_SECONDS}s)..."
     sleep "$INTERVAL_SECONDS"
 done
