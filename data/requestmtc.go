@@ -34,9 +34,8 @@ import (
 // landmarkRetryInterval is how often to re-attempt the landmark-relative
 // conversion while waiting for a landmark to cover the new entry. Landmarks
 // are allocated on a fixed interval (cactus-config.json landmarks
-// .time_between_landmarks_ms, 60s by default), so polling faster than this
-// just adds noise.
-const landmarkRetryInterval = 5 * time.Second
+// .time_between_landmarks_ms, 3600000ms = 1h by default).
+const landmarkRetryInterval = 15 * time.Second
 
 func main() {
 	domain := flag.String("domain", "", "domain to request a certificate for (required)")
@@ -45,7 +44,7 @@ func main() {
 	certPath := flag.String("path", "./certs", "lego --path directory (certs land in <path>/certificates)")
 	logURL := flag.String("log", "http://localhost:14080/1", "cactus log URL (monitoring endpoint + log number) used to build the landmark-relative cert")
 	cli := flag.String("cactus-cli", "cactus-cli", "path to the cactus-cli binary")
-	landmarkWait := flag.Duration("landmark-wait", 90*time.Second, "how long to wait for a landmark covering the freshly issued entry")
+	landmarkWait := flag.Duration("landmark-wait", 70*time.Minute, "how long to wait for a landmark covering the freshly issued entry")
 	relative := flag.Bool("relative", false, "whether to obtain and use a landmark-relative cert in Apache config")
 	tai := flag.Bool("tai", false, "whether to attach a TAI CERTIFICATE PROPERTIES block to the landmark-relative cert")
 	flag.Parse()
@@ -62,7 +61,33 @@ func main() {
 }
 
 func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.Duration, relative, tai bool) error {
-	// 1. Request the certificate with lego.
+	if relative && logURL == "" {
+		return fmt.Errorf("-relative requires a non-empty -log URL")
+	}
+
+	absCertPath, err := filepath.Abs(certPath)
+	if err != nil {
+		return fmt.Errorf("resolving cert path: %w", err)
+	}
+	liveCertDir := filepath.Join(absCertPath, "certificates")
+	liveAccountsDir := filepath.Join(absCertPath, "accounts")
+
+	// Stage lego output in a temporary directory so that live certificates and
+	// keys in certPath/certificates are not overwritten until the final cert
+	// (including landmark-relative conversion when -relative is set) is ready.
+	stagingDir, err := os.MkdirTemp("", "requestmtc-staging-*")
+	if err != nil {
+		return fmt.Errorf("creating staging dir: %w", err)
+	}
+	defer os.RemoveAll(stagingDir)
+
+	if _, err := os.Stat(liveAccountsDir); err == nil {
+		if err := copyDir(liveAccountsDir, filepath.Join(stagingDir, "accounts")); err != nil {
+			return fmt.Errorf("copying ACME accounts to staging: %w", err)
+		}
+	}
+
+	// 1. Request the certificate with lego into stagingDir.
 	logStep("Requesting certificate for %s from %s", domain, server)
 	lego := exec.Command("lego",
 		"--server", server,
@@ -71,7 +96,7 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		"--accept-tos",
 		"--http",
 		"--pem",
-		"--path", certPath,
+		"--path", stagingDir,
 		"run",
 	)
 	lego.Stdout = os.Stdout
@@ -81,25 +106,102 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		return fmt.Errorf("lego run failed (see output above): %w", err)
 	}
 
-	// Resolve absolute cert/key paths for the Apache config. lego writes the
-	// certificate (.crt) and private key (.key) under <path>/certificates, plus
-	// -- because of --pem -- the two concatenated as .pem. cactus-cli reads the
-	// first CERTIFICATE block, so the .pem works as its input as-is.
-	certDir, err := filepath.Abs(filepath.Join(certPath, "certificates"))
-	if err != nil {
-		return fmt.Errorf("resolving cert dir: %w", err)
-	}
-	certFile := filepath.Join(certDir, domain+".crt")
-	keyFile := filepath.Join(certDir, domain+".key")
-	pemFile := filepath.Join(certDir, domain+".pem")
-	for _, f := range []string{certFile, keyFile, pemFile} {
-		if _, err := os.Stat(f); err != nil {
-			return fmt.Errorf("expected cert artifact missing: %s", f)
+	// Persist any updated ACME account state back to certPath/accounts.
+	stagingAccountsDir := filepath.Join(stagingDir, "accounts")
+	if _, err := os.Stat(stagingAccountsDir); err == nil {
+		if err := copyDir(stagingAccountsDir, liveAccountsDir); err != nil {
+			log.Printf("==> warning: failed to sync ACME accounts back to %s: %v", liveAccountsDir, err)
 		}
 	}
-	logStep("Certificate written under %s", certDir)
 
-	// 2. Create a document root with a basic hello-world page.
+	stagingCertDir := filepath.Join(stagingDir, "certificates")
+	stagingCertFile := filepath.Join(stagingCertDir, domain+".crt")
+	stagingKeyFile := filepath.Join(stagingCertDir, domain+".key")
+	stagingPemFile := filepath.Join(stagingCertDir, domain+".pem")
+	for _, f := range []string{stagingCertFile, stagingKeyFile, stagingPemFile} {
+		if _, err := os.Stat(f); err != nil {
+			return fmt.Errorf("expected cert artifact missing in staging: %s", f)
+		}
+	}
+	logStep("Certificate staged under %s", stagingCertDir)
+
+	// 2. If -relative is set, convert the staged standalone cert into its
+	// landmark-relative form before touching the live cert directory or Apache.
+	var stagingLRFile string
+	if relative {
+		inputPem := stagingPemFile
+		if tai {
+			withPropsFile, err := prepareTAIInput(stagingPemFile, stagingCertDir, domain)
+			if err != nil {
+				return fmt.Errorf("attaching TAI properties: %w", err)
+			}
+			inputPem = withPropsFile
+			logStep("Standalone cert with TAI properties written to %s", withPropsFile)
+		}
+
+		stagingLRFile = filepath.Join(stagingCertDir, domain+"-landmark-relative.pem")
+		if err := landmarkRelative(cli, inputPem, logURL, stagingLRFile, landmarkWait); err != nil {
+			return fmt.Errorf("obtaining landmark-relative certificate for %s: %w", domain, err)
+		}
+	}
+
+	// 3. Install the ready certificate and key into liveCertDir.
+	if err := os.MkdirAll(liveCertDir, 0755); err != nil {
+		return fmt.Errorf("creating live cert dir %s: %w", liveCertDir, err)
+	}
+	keyBytes, err := os.ReadFile(stagingKeyFile)
+	if err != nil {
+		return fmt.Errorf("reading staged key: %w", err)
+	}
+	keyFile := filepath.Join(liveCertDir, domain+".key")
+	if err := writeFileAtomic(keyFile, keyBytes, 0600); err != nil {
+		return fmt.Errorf("installing key %s: %w", keyFile, err)
+	}
+
+	var certToUse string
+	if relative {
+		lrBytes, err := os.ReadFile(stagingLRFile)
+		if err != nil {
+			return fmt.Errorf("reading staged landmark-relative cert: %w", err)
+		}
+		lrFile := filepath.Join(liveCertDir, domain+"-landmark-relative.pem")
+		if err := writeFileAtomic(lrFile, lrBytes, 0644); err != nil {
+			return fmt.Errorf("installing landmark-relative cert %s: %w", lrFile, err)
+		}
+		// Also write the landmark-relative cert to .crt and .pem so no standalone
+		// certificate ever exists in liveCertDir for a relative domain.
+		certFile := filepath.Join(liveCertDir, domain+".crt")
+		if err := writeFileAtomic(certFile, lrBytes, 0644); err != nil {
+			return fmt.Errorf("installing cert %s: %w", certFile, err)
+		}
+		pemFile := filepath.Join(liveCertDir, domain+".pem")
+		if err := writeFileAtomic(pemFile, append(append([]byte(nil), lrBytes...), keyBytes...), 0600); err != nil {
+			return fmt.Errorf("installing pem %s: %w", pemFile, err)
+		}
+		certToUse = lrFile
+		logStep("Installed landmark-relative certificate to %s", lrFile)
+	} else {
+		certBytes, err := os.ReadFile(stagingCertFile)
+		if err != nil {
+			return fmt.Errorf("reading staged cert: %w", err)
+		}
+		pemBytes, err := os.ReadFile(stagingPemFile)
+		if err != nil {
+			return fmt.Errorf("reading staged pem: %w", err)
+		}
+		certFile := filepath.Join(liveCertDir, domain+".crt")
+		if err := writeFileAtomic(certFile, certBytes, 0644); err != nil {
+			return fmt.Errorf("installing cert %s: %w", certFile, err)
+		}
+		pemFile := filepath.Join(liveCertDir, domain+".pem")
+		if err := writeFileAtomic(pemFile, pemBytes, 0600); err != nil {
+			return fmt.Errorf("installing pem %s: %w", pemFile, err)
+		}
+		certToUse = certFile
+		logStep("Installed standalone certificate to %s", certFile)
+	}
+
+	// 4. Create a document root with a basic hello-world page.
 	var hostDocRoot string
 	if _, err := exec.LookPath("a2ensite"); err == nil {
 		hostDocRoot = filepath.Join("/var/www", domain)
@@ -116,33 +218,7 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 	}
 	logStep("Hello world page written to %s", indexPath)
 
-	// 3. Convert the standalone cert into its landmark-relative form if requested.
-	certToUse := certFile
-	if relative {
-		if logURL == "" {
-			log.Printf("==> warning: --relative requested but -log URL is empty; using standalone certificate")
-		} else {
-			inputPem := pemFile
-			if tai {
-				withPropsFile, err := prepareTAIInput(pemFile, certDir, domain)
-				if err != nil {
-					log.Printf("==> warning: failed to attach TAI properties: %v", err)
-				} else {
-					inputPem = withPropsFile
-					logStep("Standalone cert with TAI properties written to %s", withPropsFile)
-				}
-			}
-
-			lrFile := filepath.Join(certDir, domain+"-landmark-relative.pem")
-			if err := landmarkRelative(cli, inputPem, logURL, lrFile, landmarkWait); err != nil {
-				log.Printf("==> warning: no landmark-relative certificate written: %v; using standalone certificate", err)
-			} else {
-				certToUse = lrFile
-			}
-		}
-	}
-
-	// 4. Write Apache VirtualHost config (<domain>.conf)
+	// 5. Write Apache VirtualHost config (<domain>.conf)
 	confName := domain + ".conf"
 
 	if _, err := exec.LookPath("a2ensite"); err == nil {
@@ -162,7 +238,7 @@ func run(domain, email, server, certPath, logURL, cli string, landmarkWait time.
 		}
 	} else {
 		// Docker-based setup
-		relCert, err := filepath.Rel(certDir, certToUse)
+		relCert, err := filepath.Rel(liveCertDir, certToUse)
 		if err != nil {
 			relCert = filepath.Base(certToUse)
 		}
@@ -371,3 +447,33 @@ func appendBase128(dst []byte, v uint64) []byte {
 	}
 	return append(dst, buf[n:]...)
 }
+
+func writeFileAtomic(dst string, data []byte, perm os.FileMode) error {
+	tmp := dst + ".tmp"
+	if err := os.WriteFile(tmp, data, perm); err != nil {
+		return err
+	}
+	return os.Rename(tmp, dst)
+}
+
+func copyDir(src, dst string) error {
+	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if info.IsDir() {
+			return os.MkdirAll(target, info.Mode())
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, data, info.Mode())
+	})
+}
+
