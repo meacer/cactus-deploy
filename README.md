@@ -61,6 +61,28 @@ make deploy
 ./deploy.sh --local-keys   # using local keys in keys/ directory
 ```
 
+## Docker deployment & Trust Anchor Negotiation (TAI) demo site
+
+To deploy the containerized stack (`cactus`, `sunlight`, `skylight`, `nginx`, `certbot`):
+
+```sh
+./docker-deploy.sh
+```
+
+By default, the TLS Trust Anchor Negotiation (`draft-ietf-tls-trust-anchor-ids`) demo site (`tai.demo.mtcs.dev`) is disabled to keep the deployment simple. To enable `tai.demo.mtcs.dev` (served via `bssl server` with Nginx SNI routing on port 443 and standalone MTC fallback):
+
+```sh
+./docker-deploy.sh --enable-tai
+# or via environment variable / config.sh:
+ENABLE_TAI=true ./docker-deploy.sh
+```
+
+To disable it on a subsequent deploy:
+
+```sh
+./docker-deploy.sh --disable-tai
+```
+
 ## Other commands (local)
 
 ```sh

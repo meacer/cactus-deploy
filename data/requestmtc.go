@@ -200,6 +200,12 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 			if err := writeFileAtomic(lrFile, lrBytes, 0644); err != nil {
 				return fmt.Errorf("installing landmark-relative cert %s: %w", lrFile, err)
 			}
+			// Also save the original standalone certificate to <domain>-standalone.crt
+			// so bssl server can use it as -fallback-cert when TAI does not match.
+			if origCertBytes, err := os.ReadFile(sc.certFile); err == nil {
+				standaloneFile := filepath.Join(liveCertDir, domain+"-standalone.crt")
+				_ = writeFileAtomic(standaloneFile, origCertBytes, 0644)
+			}
 			// Also write the landmark-relative cert to .crt and .pem so no standalone
 			// certificate ever exists in liveCertDir for a relative domain.
 			certFile := filepath.Join(liveCertDir, domain+".crt")
@@ -209,6 +215,11 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 			pemFile := filepath.Join(liveCertDir, domain+".pem")
 			if err := writeFileAtomic(pemFile, append(append([]byte(nil), lrBytes...), keyBytes...), 0600); err != nil {
 				return fmt.Errorf("installing pem %s: %w", pemFile, err)
+			}
+			if taid := extractTAIDFromCertText(cli, lrFile); taid != "" {
+				taidFile := filepath.Join(liveCertDir, domain+".taid")
+				_ = writeFileAtomic(taidFile, []byte(taid+"\n"), 0644)
+				logStep("Wrote Trust Anchor ID %s to %s", taid, taidFile)
 			}
 			certToUse = lrFile
 			logStep("Installed landmark-relative certificate to %s", lrFile)
@@ -305,6 +316,13 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		} else {
 			logStep("Nginx container reloaded successfully.")
 		}
+	}
+
+	// 5. If bssl-tai.service is active/enabled on the host, restart it so it picks up
+	// any newly issued certificate and updated Trust Anchor ID.
+	if err := exec.Command("systemctl", "is-enabled", "--quiet", "bssl-tai.service").Run(); err == nil {
+		logStep("Restarting bssl-tai.service to pick up updated certificate and Trust Anchor ID")
+		_ = sudoRun("systemctl", "restart", "bssl-tai.service")
 	}
 
 	logStep("Done. Certificate(s) for %s ready.", strings.Join(domains, ", "))
@@ -424,6 +442,22 @@ server {
     ssl_ciphers DEFAULT:@SECLEVEL=0;
 }
 `, domain, docRoot, certFile, keyFile)
+}
+
+func extractTAIDFromCertText(cli, certFile string) string {
+	cmd := exec.Command(cli, "cert", "text", certFile)
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	if err := cmd.Run(); err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(out.String(), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "trust anchor id:") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "trust anchor id:"))
+		}
+	}
+	return ""
 }
 
 // sudoRun runs a command as root, streaming its output to the terminal.

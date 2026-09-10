@@ -21,13 +21,18 @@ services:
     command: >
       sh -c "
         mkdir -p /etc/nginx/sites-enabled &&
+        touch /etc/nginx/tai-stream-map.conf &&
         nginx -g 'daemon off;'
       "
     ports:
       - "80:80"
       - "443:443"
+      - "127.0.0.1:9999:9999"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./tai-stream-map.conf:/etc/nginx/tai-stream-map.conf
       - ./letsencrypt:/etc/letsencrypt
       - certbot-webroot:/var/www/certbot:ro
       - ./certs:/etc/certs:ro

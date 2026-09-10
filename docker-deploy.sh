@@ -4,6 +4,23 @@ DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
 source "$DEPLOY_DIR/config.sh"
 
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --enable-tai)
+      ENABLE_TAI="true"
+      shift
+      ;;
+    --disable-tai)
+      ENABLE_TAI="false"
+      shift
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
 GO="${GO:-$HOME/go/bin/gotip}"
 if ! command -v "$GO" >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
   GO=go
@@ -19,6 +36,18 @@ echo "==> Building cactus-cli and requestmtc binaries to $OUT_DIR..."
 (cd "$CACTUS_DIR" && GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/cactus-cli" ./cmd/cactus-cli)
 GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/requestmtc" "$DEPLOY_DIR/data/requestmtc.go"
 
+if [ "${ENABLE_TAI:-false}" = "true" ] || [ ! -x "$OUT_DIR/bssl" ]; then
+  if [ -d "${BORINGSSL_DIR:-}" ]; then
+    echo "==> Building bssl server binary from $BORINGSSL_DIR..."
+    cmake -S "$BORINGSSL_DIR" -B "$OUT_DIR/bssl-build" -DCMAKE_BUILD_TYPE=Release
+    cmake --build "$OUT_DIR/bssl-build" --target bssl -j
+    strip -o "$OUT_DIR/bssl" "$OUT_DIR/bssl-build/bssl"
+  elif [ "${ENABLE_TAI:-false}" = "true" ] && [ ! -x "$OUT_DIR/bssl" ]; then
+    echo "Error: ENABLE_TAI=true but BORINGSSL_DIR ($BORINGSSL_DIR) does not exist and $OUT_DIR/bssl is missing" >&2
+    exit 1
+  fi
+fi
+
 docker save cactus:local   | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "gunzip | docker load"
 
 docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "gunzip | docker load"
@@ -28,11 +57,14 @@ cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
 # Override with custom configs from cactus-deploy:
-gcloud compute scp "$DEPLOY_DIR/data/nginx.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute scp "$DEPLOY_DIR/data/nginx.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$DEPLOY_DIR/data/run-bssl-tai.sh" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+if [ -x "$OUT_DIR/bssl" ]; then
+  gcloud compute scp "$OUT_DIR/bssl" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+fi
 gcloud compute scp --recurse "$OUT_DIR/www" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-demo-domain-certs.sh" "$DEPLOY_DIR/data/generate-demo-html.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-demo-domain-certs.sh ~/docker/generate-demo-html.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo install -m 0755 ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-demo-domain-certs.sh ~/docker/generate-demo-html.sh ~/docker/run-bssl-tai.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo install -m 0755 ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && if [ -x ~/docker/bssl ]; then sudo install -m 0755 ~/docker/bssl /var/lib/toolbox/bin/; fi"
 
 LOCAL_TMP_KEYS="$(mktemp -d)"
 trap 'rm -rf "$LOCAL_TMP_KEYS"' EXIT
@@ -153,10 +185,44 @@ if ! systemctl is-active --quiet request-certs.service; then
   sudo systemctl start request-certs.service
 fi
 
+# Configure systemd service for bssl TAI server
+sudo tee /etc/systemd/system/bssl-tai.service >/dev/null << SERVICE
+[Unit]
+Description=BoringSSL TAI Server for tai.demo.mtcs.dev
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/meacer/docker
+ExecStart=/bin/bash /home/meacer/docker/run-bssl-tai.sh
+Restart=always
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+SERVICE
+
+sudo systemctl daemon-reload
+if [ "${ENABLE_TAI}" = "true" ]; then
+  echo "==> Enabling and starting bssl-tai.service..."
+  sudo systemctl enable bssl-tai.service
+  sudo systemctl restart bssl-tai.service
+else
+  sudo systemctl stop bssl-tai.service || true
+  sudo systemctl disable bssl-tai.service || true
+fi
+
 mkdir -p ~/docker/sites-enabled
 sudo chown -R \$(id -u):\$(id -g) ~/docker/sites-enabled ~/docker/www 2>/dev/null || true
 # Remove any legacy Apache VirtualHost configs from sites-enabled
 grep -l '<VirtualHost' ~/docker/sites-enabled/*.conf 2>/dev/null | xargs -r rm -f || true
+echo "ENABLE_TAI=${ENABLE_TAI}" > ~/docker/enable-tai.env
+if [ "${ENABLE_TAI}" = "true" ]; then
+  echo "tai.demo.mtcs.dev host.docker.internal:8443;" > ~/docker/tai-stream-map.conf
+else
+  : > ~/docker/tai-stream-map.conf
+  rm -f ~/docker/sites-enabled/tai.demo.mtcs.dev.conf
+fi
 
 cd ~/docker
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d --remove-orphans
@@ -211,7 +277,10 @@ EOF
 fi
 
 # Ensure Nginx vhosts exist for any demo domain whose certificate is already present in ~/docker/certs/certificates
-for domain in standalone.demo.mtcs.dev relative.demo.mtcs.dev landmark-relative.demo.mtcs.dev; do
+for domain in standalone.demo.mtcs.dev relative.demo.mtcs.dev landmark-relative.demo.mtcs.dev tai.demo.mtcs.dev; do
+  if [ "\$domain" = "tai.demo.mtcs.dev" ] && [ "${ENABLE_TAI}" != "true" ]; then
+    continue
+  fi
   cert_file=""
   if [ -f "./certs/certificates/\${domain}-landmark-relative.pem" ]; then
     cert_file="\${domain}-landmark-relative.pem"

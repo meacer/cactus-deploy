@@ -20,9 +20,19 @@ run_requestmtc() {
 }
 
 run_requestmtc "standalone.demo.mtcs.dev"
-run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/enable-tai.env" ]]; then
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/enable-tai.env"
+fi
+
+if [[ "${ENABLE_TAI:-false}" == "true" ]]; then
+    run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev,tai.demo.mtcs.dev" -relative -tai
+else
+    run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
+fi
+
 if [[ -f "${SCRIPT_DIR}/generate-demo-html.sh" ]]; then
     bash "${SCRIPT_DIR}/generate-demo-html.sh"
 fi

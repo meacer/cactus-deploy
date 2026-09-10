@@ -17,8 +17,17 @@ CERTS_DIR="${CERTS_DIR:-./certs/certificates}"
 WWW_ROOT="${WWW_ROOT:-./www}"
 LOG_URL="${LOG_URL:-http://localhost:14080/1}"
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+if [[ -f "${SCRIPT_DIR}/enable-tai.env" ]]; then
+    # shellcheck disable=SC1091
+    source "${SCRIPT_DIR}/enable-tai.env"
+fi
+
 if [[ $# -eq 0 ]]; then
     DOMAINS=("standalone.demo.mtcs.dev" "relative.demo.mtcs.dev" "landmark-relative.demo.mtcs.dev")
+    if [[ "${ENABLE_TAI:-false}" == "true" ]]; then
+        DOMAINS+=("tai.demo.mtcs.dev")
+    fi
 else
     DOMAINS=("$@")
 fi
@@ -113,6 +122,10 @@ for domain in "${DOMAINS[@]}"; do
         badge_class="badge-relative"
         badge_text="Landmark-Relative MTC"
         summary_desc="Signature-free MTC verified via ${inc_proof} Merkle inclusion proof to a trusted landmark subtree"
+        if [[ "$domain" == "tai.demo.mtcs.dev" ]]; then
+            badge_text="TAI Landmark-Relative MTC"
+            summary_desc="Negotiated via TLS 1.3 Trust Anchor Identifiers (<code>trust_anchors</code>) &mdash; serves signature-free Landmark-Relative MTC when covering landmark TAID matches, or falls back to Standalone MTC"
+        fi
     fi
 
     landmark_info="$(find_covering_landmark "${entry_index:-0}")"
@@ -377,6 +390,7 @@ EOF
       <a href="https://standalone.demo.mtcs.dev/" class="$([ "$domain" = "standalone.demo.mtcs.dev" ] && echo active || true)">standalone.demo.mtcs.dev</a>
       <a href="https://relative.demo.mtcs.dev/" class="$([ "$domain" = "relative.demo.mtcs.dev" ] && echo active || true)">relative.demo.mtcs.dev</a>
       <a href="https://landmark-relative.demo.mtcs.dev/" class="$([ "$domain" = "landmark-relative.demo.mtcs.dev" ] && echo active || true)">landmark-relative.demo.mtcs.dev</a>
+      $([[ "${ENABLE_TAI:-false}" == "true" || "$domain" == "tai.demo.mtcs.dev" ]] && echo "<a href=\"https://tai.demo.mtcs.dev/\" class=\"$([ \"$domain\" = \"tai.demo.mtcs.dev\" ] && echo active || true)\">tai.demo.mtcs.dev</a>" || true)
     </nav>
 
     <div class="panel">
