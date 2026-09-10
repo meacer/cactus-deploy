@@ -37,6 +37,12 @@ echo "==> Building cactus-cli and requestmtc binaries to $OUT_DIR..."
 GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/requestmtc" "$DEPLOY_DIR/data/requestmtc.go"
 
 if [ "${ENABLE_TAI:-false}" = "true" ] || [ ! -x "$OUT_DIR/bssl" ]; then
+  if [ ! -d "${BORINGSSL_DIR:-}" ]; then
+    read -r -p "BORINGSSL_DIR ($BORINGSSL_DIR) does not exist. Clone https://github.com/meacer/boringssl (branch tai-server) into $BORINGSSL_DIR? [y/N] " reply
+    if [[ "$reply" =~ ^[Yy] ]]; then
+      git clone -b tai-server https://github.com/meacer/boringssl "$BORINGSSL_DIR"
+    fi
+  fi
   if [ -d "${BORINGSSL_DIR:-}" ]; then
     echo "==> Building bssl server binary from $BORINGSSL_DIR..."
     cmake -S "$BORINGSSL_DIR" -B "$OUT_DIR/bssl-build" -DCMAKE_BUILD_TYPE=Release
