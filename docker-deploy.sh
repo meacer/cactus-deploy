@@ -28,7 +28,7 @@ cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
 # Override with custom configs from cactus-deploy:
-gcloud compute scp "$DEPLOY_DIR/data/apache-docker.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+gcloud compute scp "$DEPLOY_DIR/data/nginx.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp --recurse "$OUT_DIR/www" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-demo-domain-certs.sh" "$DEPLOY_DIR/data/generate-demo-html.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
@@ -153,8 +153,13 @@ if ! systemctl is-active --quiet request-certs.service; then
   sudo systemctl start request-certs.service
 fi
 
+mkdir -p ~/docker/sites-enabled
+sudo chown -R \$(id -u):\$(id -g) ~/docker/sites-enabled ~/docker/www 2>/dev/null || true
+# Remove any legacy Apache VirtualHost configs from sites-enabled
+grep -l '<VirtualHost' ~/docker/sites-enabled/*.conf 2>/dev/null | xargs -r rm -f || true
+
 cd ~/docker
-\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d
+\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d --remove-orphans
 
 for domain in ca1.test.mtcs.dev mirror1.test.mtcs.dev; do
   if ! sudo test -f "./letsencrypt/live/\$domain/fullchain.pem"; then
@@ -165,6 +170,83 @@ for domain in ca1.test.mtcs.dev mirror1.test.mtcs.dev; do
   fi
 done
 
-echo "==> Reloading Apache container to pick up SSL certificates..."
-\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml exec -T apache httpd -k graceful < /dev/null
+if sudo test -f "./letsencrypt/live/ca1.test.mtcs.dev/fullchain.pem"; then
+  cat > ~/docker/sites-enabled/ca1.test.mtcs.dev.conf << 'EOF'
+server {
+    listen 4443 ssl;
+    server_name ca1.test.mtcs.dev;
+    ssl_certificate /etc/letsencrypt/live/ca1.test.mtcs.dev/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ca1.test.mtcs.dev/privkey.pem;
+    location / {
+        set \$cactus_upstream "cactus:14080";
+        proxy_pass http://\$cactus_upstream;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+    }
+}
+EOF
+fi
+
+if sudo test -f "./letsencrypt/live/mirror1.test.mtcs.dev/fullchain.pem"; then
+  cat > ~/docker/sites-enabled/mirror1.test.mtcs.dev.conf << 'EOF'
+server {
+    listen 4443 ssl;
+    server_name mirror1.test.mtcs.dev;
+    ssl_certificate /etc/letsencrypt/live/mirror1.test.mtcs.dev/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/mirror1.test.mtcs.dev/privkey.pem;
+    root /var/www/mirror1;
+    index index.html;
+    location /mirror/ {
+        set \$skylight_upstream "skylight:8081";
+        proxy_pass http://\$skylight_upstream;
+        proxy_set_header Host \$host;
+    }
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+}
+EOF
+fi
+
+# Ensure Nginx vhosts exist for any demo domain whose certificate is already present in ~/docker/certs/certificates
+for domain in standalone.demo.mtcs.dev relative.demo.mtcs.dev landmark-relative.demo.mtcs.dev; do
+  cert_file=""
+  if [ -f "./certs/certificates/\${domain}-landmark-relative.pem" ]; then
+    cert_file="\${domain}-landmark-relative.pem"
+  elif [ -f "./certs/certificates/\${domain}.crt" ]; then
+    cert_file="\${domain}.crt"
+  fi
+  if [ -n "\$cert_file" ] && [ -f "./certs/certificates/\${domain}.key" ]; then
+    sudo tee ~/docker/sites-enabled/\${domain}.conf >/dev/null << EOF
+server {
+    listen 80;
+    server_name \${domain};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://\\\$host\\\$request_uri;
+    }
+}
+
+server {
+    listen 4443 ssl;
+    server_name \${domain};
+    root /var/www/\${domain};
+    index index.html;
+
+    ssl_certificate /etc/certs/certificates/\${cert_file};
+    ssl_certificate_key /etc/certs/certificates/\${domain}.key;
+    ssl_ciphers DEFAULT:@SECLEVEL=0;
+}
+EOF
+  fi
+done
+
+echo "==> Restarting Nginx container to pick up SSL certificates..."
+\$COMPOSE_CMD -f compose.yaml -f compose.override.yaml restart nginx
 REMOTE

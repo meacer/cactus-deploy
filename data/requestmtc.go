@@ -250,7 +250,7 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		}
 		logStep("Hello world page written to %s", indexPath)
 
-		// Write Apache VirtualHost config (<domain>.conf)
+		// Write web server VirtualHost config (<domain>.conf)
 		confName := domain + ".conf"
 
 		if _, err := exec.LookPath("a2ensite"); err == nil {
@@ -264,7 +264,7 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 			_ = sudoRun("a2enmod", "ssl")
 			_ = sudoRun("a2ensite", confName)
 		} else {
-			// Docker-based setup
+			// Docker-based setup (Nginx)
 			relCert, err := filepath.Rel(liveCertDir, certToUse)
 			if err != nil {
 				relCert = filepath.Base(certToUse)
@@ -281,14 +281,14 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 				return fmt.Errorf("creating sites-enabled dir: %w", err)
 			}
 			confPath := filepath.Join(hostSitesDir, confName)
-			logStep("Writing Apache config %s (container cert %s)", confPath, containerCertPath)
-			if err := os.WriteFile(confPath, []byte(vhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
-				return fmt.Errorf("writing apache config for %s: %w", domain, err)
+			logStep("Writing Nginx config %s (container cert %s)", confPath, containerCertPath)
+			if err := os.WriteFile(confPath, []byte(nginxVhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
+				return fmt.Errorf("writing nginx config for %s: %w", domain, err)
 			}
 		}
 	}
 
-	// 4. Reload Apache once after all configs are written.
+	// 4. Reload web server once after all configs are written.
 	if _, err := exec.LookPath("a2ensite"); err == nil {
 		logStep("Validating Apache configuration")
 		if err := sudoRun("apache2ctl", "configtest"); err == nil {
@@ -296,14 +296,14 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 			_ = sudoRun("systemctl", "reload-or-restart", "apache2")
 		}
 	} else {
-		logStep("Reloading Apache in Docker container (cactus-apache-1)")
-		reloadCmd := exec.Command("docker", "exec", "cactus-apache-1", "httpd", "-k", "graceful")
+		logStep("Reloading Nginx in Docker container (cactus-nginx-1)")
+		reloadCmd := exec.Command("docker", "exec", "cactus-nginx-1", "nginx", "-s", "reload")
 		reloadCmd.Stdout = os.Stdout
 		reloadCmd.Stderr = os.Stderr
 		if err := reloadCmd.Run(); err != nil {
-			log.Printf("==> warning: failed to reload Apache container: %v", err)
+			log.Printf("==> warning: failed to reload Nginx container: %v", err)
 		} else {
-			logStep("Apache container reloaded successfully.")
+			logStep("Nginx container reloaded successfully.")
 		}
 	}
 
@@ -392,6 +392,37 @@ func vhostConf(domain, docRoot, certFile, keyFile string) string {
         Require all granted
     </Directory>
 </VirtualHost>
+`, domain, docRoot, certFile, keyFile)
+}
+
+func nginxVhostConf(domain, docRoot, certFile, keyFile string) string {
+	return fmt.Sprintf(`server {
+    listen 80;
+    server_name %[1]s;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 4443 ssl;
+    server_name %[1]s;
+
+    root %[2]s;
+    index index.html;
+
+    ssl_certificate %[3]s;
+    ssl_certificate_key %[4]s;
+
+    # Pebble test certs use a weak signature digest that OpenSSL's default
+    # security level (2) rejects; lower it so OpenSSL will load the cert.
+    ssl_ciphers DEFAULT:@SECLEVEL=0;
+}
 `, domain, docRoot, certFile, keyFile)
 }
 
