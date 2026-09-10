@@ -322,6 +322,9 @@ EOF
   fi
 done
 
+echo "==> Generating rich demo HTML pages from existing certificates..."
+bash ~/docker/generate-demo-html.sh
+
 echo "==> Restarting Nginx container to pick up SSL certificates..."
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml restart nginx
 REMOTE
