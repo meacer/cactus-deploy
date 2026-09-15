@@ -44,10 +44,13 @@ if [ "${ENABLE_TAI:-false}" = "true" ] || [ ! -x "$OUT_DIR/bssl" ]; then
     fi
   fi
   if [ -d "${BORINGSSL_DIR:-}" ]; then
-    echo "==> Building bssl server binary from $BORINGSSL_DIR..."
-    cmake -S "$BORINGSSL_DIR" -B "$OUT_DIR/bssl-build" -DCMAKE_BUILD_TYPE=Release
-    cmake --build "$OUT_DIR/bssl-build" --target bssl -j
-    strip -o "$OUT_DIR/bssl" "$OUT_DIR/bssl-build/bssl"
+    echo "==> Building static bssl server binary from $BORINGSSL_DIR via Alpine Docker..."
+    docker run --rm -v "$BORINGSSL_DIR:/src:ro" -v "$OUT_DIR:/out" alpine sh -c "
+      apk add --no-cache cmake make g++ go perl linux-headers &&
+      cmake -S /src -B /build -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXE_LINKER_FLAGS='-static' &&
+      cmake --build /build --target bssl -j\$(nproc) &&
+      strip -o /out/bssl /build/bssl
+    "
   elif [ "${ENABLE_TAI:-false}" = "true" ] && [ ! -x "$OUT_DIR/bssl" ]; then
     echo "Error: ENABLE_TAI=true but BORINGSSL_DIR ($BORINGSSL_DIR) does not exist and $OUT_DIR/bssl is missing" >&2
     exit 1
@@ -210,7 +213,8 @@ SERVICE
 
 sudo systemctl daemon-reload
 if [ "${ENABLE_TAI}" = "true" ]; then
-  echo "==> Enabling and starting bssl-tai.service..."
+  echo "==> Allowing port 8443 in host iptables and enabling bssl-tai.service..."
+  sudo iptables -C INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT
   sudo systemctl enable bssl-tai.service
   sudo systemctl restart bssl-tai.service
 else
@@ -224,7 +228,7 @@ sudo chown -R \$(id -u):\$(id -g) ~/docker/sites-enabled ~/docker/www 2>/dev/nul
 grep -l '<VirtualHost' ~/docker/sites-enabled/*.conf 2>/dev/null | xargs -r rm -f || true
 echo "ENABLE_TAI=${ENABLE_TAI}" > ~/docker/enable-tai.env
 if [ "${ENABLE_TAI}" = "true" ]; then
-  echo "tai.demo.mtcs.dev host.docker.internal:8443;" > ~/docker/tai-stream-map.conf
+  echo "tai.demo.mtcs.dev tai_backend;" > ~/docker/tai-stream-map.conf
 else
   : > ~/docker/tai-stream-map.conf
   rm -f ~/docker/sites-enabled/tai.demo.mtcs.dev.conf

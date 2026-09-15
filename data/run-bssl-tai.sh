@@ -25,6 +25,8 @@ if [[ -f "$FALLBACK_CERT" ]]; then
     FALLBACK_ARGS=(-tai-fallback-cert "$FALLBACK_CERT")
 fi
 
+sudo iptables -C INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT
+
 echo "==> [$(date -u)] Starting bssl server for ${DOMAIN} on port 8443 (Trust Anchor ID: ${TAID})"
 exec "$BSSL_BIN" server \
     -accept 8443 \

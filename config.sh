@@ -9,6 +9,6 @@
 VM="cactus-testing"           # GCP VM instance name
 ZONE="us-central1-a"         # GCP zone the VM runs in
 PROJECT="meacer"      # GCP project ID
-ENABLE_TAI="${ENABLE_TAI:-false}" # Whether to enable and serve tai.demo.mtcs.dev via bssl server
+ENABLE_TAI="${ENABLE_TAI:-true}" # Whether to enable and serve tai.demo.mtcs.dev via bssl server
 BORINGSSL_DIR="${BORINGSSL_DIR:-$HOME/src/meacer-boringssl}" # Path to meacer/boringssl tai-server branch
 

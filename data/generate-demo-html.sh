@@ -206,6 +206,67 @@ EOF
 )
     fi
 
+    standalone_section=""
+    if [[ "$domain" == "tai.demo.mtcs.dev" && -f "${CERTS_DIR}/${domain}-standalone.crt" ]]; then
+        sa_file="${CERTS_DIR}/${domain}-standalone.crt"
+        sa_text="$("$CACTUS_CLI" cert text "$sa_file")"
+        sa_formatted="$(format_cert_text_html <<< "$sa_text")"
+        sa_subtree="$(grep -E '^[[:space:]]*subtree:' <<< "$sa_text" | sed 's/^[[:space:]]*subtree:[[:space:]]*//')"
+        sa_inc_proof="$(grep -E '^[[:space:]]*inclusion proof:' <<< "$sa_text" | sed 's/^[[:space:]]*inclusion proof:[[:space:]]*//')"
+        sa_sigs="$(grep -E '^[[:space:]]*signatures:' <<< "$sa_text" | sed 's/^[[:space:]]*signatures:[[:space:]]*//')"
+
+        sa_cosigner_list=""
+        while IFS= read -r line; do
+            if [[ "$line" =~ -[[:space:]]*cosigner[[:space:]]+([^[:space:]]+)[[:space:]]*\(([0-9]+)-byte[[:space:]]+signature\) ]]; then
+                cos_id="${BASH_REMATCH[1]}"
+                sig_bytes="${BASH_REMATCH[2]}"
+                role="Mirror"
+                if [[ "$cos_id" == "$ca_id" ]]; then
+                    role="CA"
+                fi
+                sa_cosigner_list="${sa_cosigner_list}<div class=\"meta-sub\"><code>${cos_id}</code> (${role}, ${sig_bytes} B ML-DSA-44)</div>"
+            fi
+        done <<< "$sa_text"
+
+        standalone_section=$(cat <<EOF
+    <div class="panel">
+      <div class="title-row">
+        <h1>Fallback Certificate (No TAI Match)</h1>
+        <span class="badge badge-standalone">Standalone MTC</span>
+      </div>
+      <p class="subtitle">Served when client does not send <code>trust_anchors</code> or does not advertise <code>${lm_taid:-the covering landmark TAID}</code></p>
+
+      <table>
+        <tr>
+          <th>Proof Subtree</th>
+          <td>
+            <code>${sa_subtree}</code>
+            <span class="meta">&middot; ${sa_inc_proof} inclusion proof</span>
+          </td>
+        </tr>
+        <tr>
+          <th>Cosigner Signatures</th>
+          <td>
+            <span class="val-strong">${sa_sigs} signature(s)</span>
+            ${sa_cosigner_list}
+          </td>
+        </tr>
+      </table>
+    </div>
+
+    <div class="panel">
+      <h2>cactus-cli cert text (Standalone Fallback &mdash; ${domain}-standalone.crt)</h2>
+      <pre><code>${sa_formatted}</code></pre>
+    </div>
+EOF
+)
+    fi
+
+    primary_cert_heading="cactus-cli cert text"
+    if [[ "$domain" == "tai.demo.mtcs.dev" ]]; then
+        primary_cert_heading="cactus-cli cert text (Landmark-Relative &mdash; ${domain}-landmark-relative.pem)"
+    fi
+
     cat > "$out_html" <<EOF
 <!DOCTYPE html>
 <html lang="en">
@@ -425,9 +486,11 @@ ${cosigner_row}
     </div>
 
     <div class="panel">
-      <h2>cactus-cli cert text</h2>
+      <h2>${primary_cert_heading}</h2>
       <pre><code>${formatted_cert_text}</code></pre>
     </div>
+
+${standalone_section}
   </div>
 </body>
 </html>
