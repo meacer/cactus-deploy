@@ -1,38 +1,52 @@
 #!/usr/bin/env bash
-# Wrapper script executed by bssl-tai.service to run bssl server for tai.demo.mtcs.dev.
-# Waits for tai.demo.mtcs.dev certificates and Trust Anchor ID (.taid) to be generated,
-# then runs bssl server on port 8443 proxying decrypted HTTP traffic to Nginx on 127.0.0.1:8080.
+# Wrapper script executed by bssl-tai.service to run bssl server instances for TAI demo domains:
+#   - tai.demo.mtcs.dev on port 8443
+#   - demo.mtcs.dev on port 8444
+# Proxies decrypted HTTP traffic to Nginx on 127.0.0.1:9999.
 
 set -euo pipefail
 
 CERT_DIR="${CERT_DIR:-/home/meacer/docker/certs/certificates}"
 BSSL_BIN="${BSSL_BIN:-/var/lib/toolbox/bin/bssl}"
-DOMAIN="tai.demo.mtcs.dev"
-
-KEY_FILE="${CERT_DIR}/${DOMAIN}.key"
-LR_CERT="${CERT_DIR}/${DOMAIN}-landmark-relative.pem"
-FALLBACK_CERT="${CERT_DIR}/${DOMAIN}-standalone.crt"
-TAID_FILE="${CERT_DIR}/${DOMAIN}.taid"
-
-while [[ ! -f "$KEY_FILE" || ! -f "$LR_CERT" || ! -f "$TAID_FILE" ]]; do
-    echo "==> [$(date -u)] Waiting for ${DOMAIN} certificates and Trust Anchor ID in ${CERT_DIR}..."
-    sleep 10
-done
-
-TAID="$(tr -d '[:space:]' < "$TAID_FILE")"
-FALLBACK_ARGS=()
-if [[ -f "$FALLBACK_CERT" ]]; then
-    FALLBACK_ARGS=(-tai-fallback-cert "$FALLBACK_CERT")
-fi
 
 sudo iptables -C INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT
+sudo iptables -C INPUT -p tcp --dport 8444 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8444 -j ACCEPT
 
-echo "==> [$(date -u)] Starting bssl server for ${DOMAIN} on port 8443 (Trust Anchor ID: ${TAID})"
-exec "$BSSL_BIN" server \
-    -accept 8443 \
-    -key "$KEY_FILE" \
-    -cert "$LR_CERT" \
-    "${FALLBACK_ARGS[@]}" \
-    -trust-anchor-id "$TAID" \
-    -proxy 127.0.0.1:9999 \
-    -loop
+run_bssl_for_domain() {
+    local domain="$1"
+    local port="$2"
+
+    local key_file="${CERT_DIR}/${domain}.key"
+    local lr_cert="${CERT_DIR}/${domain}-landmark-relative.pem"
+    local fallback_cert="${CERT_DIR}/${domain}-standalone.crt"
+    local taid_file="${CERT_DIR}/${domain}.taid"
+
+    while [[ ! -f "$key_file" || ! -f "$lr_cert" || ! -f "$taid_file" ]]; do
+        echo "==> [$(date -u)] Waiting for ${domain} certificates and Trust Anchor ID in ${CERT_DIR}..."
+        sleep 10
+    done
+
+    local taid
+    taid="$(tr -d '[:space:]' < "$taid_file")"
+    local fallback_args=()
+    if [[ -f "$fallback_cert" ]]; then
+        fallback_args=(-tai-fallback-cert "$fallback_cert")
+    fi
+
+    echo "==> [$(date -u)] Starting bssl server for ${domain} on port ${port} (Trust Anchor ID: ${taid})"
+    exec "$BSSL_BIN" server \
+        -accept "$port" \
+        -key "$key_file" \
+        -cert "$lr_cert" \
+        "${fallback_args[@]}" \
+        -trust-anchor-id "$taid" \
+        -proxy 127.0.0.1:9999 \
+        -loop
+}
+
+trap 'kill $(jobs -p) 2>/dev/null || true' EXIT INT TERM
+
+run_bssl_for_domain "tai.demo.mtcs.dev" 8443 &
+run_bssl_for_domain "demo.mtcs.dev" 8444 &
+
+wait -n

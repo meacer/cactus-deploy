@@ -213,8 +213,9 @@ SERVICE
 
 sudo systemctl daemon-reload
 if [ "${ENABLE_TAI}" = "true" ]; then
-  echo "==> Allowing port 8443 in host iptables and enabling bssl-tai.service..."
+  echo "==> Allowing ports 8443 and 8444 in host iptables and enabling bssl-tai.service..."
   sudo iptables -C INPUT -p tcp --dport 8443 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8443 -j ACCEPT
+  sudo iptables -C INPUT -p tcp --dport 8444 -j ACCEPT 2>/dev/null || sudo iptables -I INPUT -p tcp --dport 8444 -j ACCEPT
   sudo systemctl enable bssl-tai.service
   sudo systemctl restart bssl-tai.service
 else
@@ -228,10 +229,13 @@ sudo chown -R \$(id -u):\$(id -g) ~/docker/sites-enabled ~/docker/www 2>/dev/nul
 grep -l '<VirtualHost' ~/docker/sites-enabled/*.conf 2>/dev/null | xargs -r rm -f || true
 echo "ENABLE_TAI=${ENABLE_TAI}" > ~/docker/enable-tai.env
 if [ "${ENABLE_TAI}" = "true" ]; then
-  echo "tai.demo.mtcs.dev tai_backend;" > ~/docker/tai-stream-map.conf
+  cat > ~/docker/tai-stream-map.conf <<'EOF'
+tai.demo.mtcs.dev tai_backend;
+demo.mtcs.dev demo_tai_backend;
+EOF
 else
   : > ~/docker/tai-stream-map.conf
-  rm -f ~/docker/sites-enabled/tai.demo.mtcs.dev.conf
+  rm -f ~/docker/sites-enabled/tai.demo.mtcs.dev.conf ~/docker/sites-enabled/demo.mtcs.dev.conf
 fi
 
 cd ~/docker

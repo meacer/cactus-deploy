@@ -28,7 +28,7 @@ if [[ -f "${SCRIPT_DIR}/enable-tai.env" ]]; then
 fi
 
 if [[ "${ENABLE_TAI:-false}" == "true" ]]; then
-    run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev,tai.demo.mtcs.dev" -relative -tai
+    run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev,tai.demo.mtcs.dev,demo.mtcs.dev" -relative -tai
 else
     run_requestmtc "relative.demo.mtcs.dev,landmark-relative.demo.mtcs.dev" -relative
 fi

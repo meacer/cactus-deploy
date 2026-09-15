@@ -26,7 +26,7 @@ fi
 if [[ $# -eq 0 ]]; then
     DOMAINS=("standalone.demo.mtcs.dev" "relative.demo.mtcs.dev" "landmark-relative.demo.mtcs.dev")
     if [[ "${ENABLE_TAI:-false}" == "true" ]]; then
-        DOMAINS+=("tai.demo.mtcs.dev")
+        DOMAINS+=("tai.demo.mtcs.dev" "demo.mtcs.dev")
     fi
 else
     DOMAINS=("$@")
@@ -122,7 +122,7 @@ for domain in "${DOMAINS[@]}"; do
         badge_class="badge-relative"
         badge_text="Landmark-Relative MTC"
         summary_desc="Signature-free MTC verified via ${inc_proof} Merkle inclusion proof to a trusted landmark subtree"
-        if [[ "$domain" == "tai.demo.mtcs.dev" ]]; then
+        if [[ "$domain" == "tai.demo.mtcs.dev" || "$domain" == "demo.mtcs.dev" ]]; then
             badge_text="TAI Landmark-Relative MTC"
             summary_desc="Negotiated via TLS 1.3 Trust Anchor Identifiers (<code>trust_anchors</code>) &mdash; serves signature-free Landmark-Relative MTC when covering landmark TAID matches, or falls back to Standalone MTC"
         fi
@@ -207,7 +207,7 @@ EOF
     fi
 
     standalone_section=""
-    if [[ "$domain" == "tai.demo.mtcs.dev" && -f "${CERTS_DIR}/${domain}-standalone.crt" ]]; then
+    if [[ ("$domain" == "tai.demo.mtcs.dev" || "$domain" == "demo.mtcs.dev") && -f "${CERTS_DIR}/${domain}-standalone.crt" ]]; then
         sa_file="${CERTS_DIR}/${domain}-standalone.crt"
         sa_text="$("$CACTUS_CLI" cert text "$sa_file")"
         sa_formatted="$(format_cert_text_html <<< "$sa_text")"
@@ -263,7 +263,7 @@ EOF
     fi
 
     primary_cert_heading="cactus-cli cert text"
-    if [[ "$domain" == "tai.demo.mtcs.dev" ]]; then
+    if [[ "$domain" == "tai.demo.mtcs.dev" || "$domain" == "demo.mtcs.dev" ]]; then
         primary_cert_heading="cactus-cli cert text (Landmark-Relative &mdash; ${domain}-landmark-relative.pem)"
     fi
 
@@ -451,7 +451,7 @@ EOF
       <a href="https://standalone.demo.mtcs.dev/" class="$([ "$domain" = "standalone.demo.mtcs.dev" ] && echo active || true)">standalone.demo.mtcs.dev</a>
       <a href="https://relative.demo.mtcs.dev/" class="$([ "$domain" = "relative.demo.mtcs.dev" ] && echo active || true)">relative.demo.mtcs.dev</a>
       <a href="https://landmark-relative.demo.mtcs.dev/" class="$([ "$domain" = "landmark-relative.demo.mtcs.dev" ] && echo active || true)">landmark-relative.demo.mtcs.dev</a>
-      $([[ "${ENABLE_TAI:-false}" == "true" || "$domain" == "tai.demo.mtcs.dev" ]] && echo "<a href=\"https://tai.demo.mtcs.dev/\" class=\"$([ \"$domain\" = \"tai.demo.mtcs.dev\" ] && echo active || true)\">tai.demo.mtcs.dev</a>" || true)
+      $([[ "${ENABLE_TAI:-false}" == "true" || "$domain" == "tai.demo.mtcs.dev" || "$domain" == "demo.mtcs.dev" ]] && echo "<a href=\"https://tai.demo.mtcs.dev/\" class=\"$([ \"$domain\" = \"tai.demo.mtcs.dev\" ] && echo active || true)\">tai.demo.mtcs.dev</a> <a href=\"https://demo.mtcs.dev/\" class=\"$([ \"$domain\" = \"demo.mtcs.dev\" ] && echo active || true)\">demo.mtcs.dev</a>" || true)
     </nav>
 
     <div class="panel">

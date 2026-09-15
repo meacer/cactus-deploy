@@ -150,10 +150,21 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		}
 	}
 
+	if err := os.MkdirAll(liveCertDir, 0755); err != nil {
+		return fmt.Errorf("creating live cert dir %s: %w", liveCertDir, err)
+	}
+
+	// 1b. Immediately install the freshly issued standalone certificates so that
+	// Nginx and bssl-tai can serve valid standalone certificates right away while
+	// waiting for the next landmark to be allocated.
+	if err := installCertsAndReload(staged, liveCertDir, cli, false); err != nil {
+		log.Printf("==> warning: initial standalone install failed: %v", err)
+	}
+
 	// 2. If -relative is set, convert all staged standalone certs into their
-	// landmark-relative form before touching the live cert directory or Apache.
-	// Since all entries were logged in Step 1, once the first domain is covered
-	// by the newly allocated landmark, all subsequent domains will convert immediately.
+	// landmark-relative form. Since all entries were logged in Step 1, once the
+	// first domain is covered by the newly allocated landmark, all subsequent
+	// domains will convert immediately.
 	if relative {
 		for i := range staged {
 			sc := &staged[i]
@@ -173,11 +184,12 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		}
 	}
 
-	// 3. Install the ready certificates and keys into liveCertDir, configure
-	// document roots, and write Apache VirtualHost configs.
-	if err := os.MkdirAll(liveCertDir, 0755); err != nil {
-		return fmt.Errorf("creating live cert dir %s: %w", liveCertDir, err)
-	}
+	// 3. Install the final certificates (landmark-relative when -relative is set)
+	// into liveCertDir, configure document roots, and reload servers.
+	return installCertsAndReload(staged, liveCertDir, cli, relative)
+}
+
+func installCertsAndReload(staged []stagedCert, liveCertDir, cli string, useRelative bool) error {
 
 	for _, sc := range staged {
 		domain := sc.domain
@@ -191,7 +203,7 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		}
 
 		var certToUse string
-		if relative {
+		if useRelative {
 			lrBytes, err := os.ReadFile(sc.lrFile)
 			if err != nil {
 				return fmt.Errorf("reading staged landmark-relative cert for %s: %w", domain, err)
@@ -201,7 +213,7 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 				return fmt.Errorf("installing landmark-relative cert %s: %w", lrFile, err)
 			}
 			// Also save the original standalone certificate to <domain>-standalone.crt
-			// so bssl server can use it as -fallback-cert when TAI does not match.
+			// so bssl server can use it as -tai-fallback-cert when TAI does not match.
 			if origCertBytes, err := os.ReadFile(sc.certFile); err == nil {
 				standaloneFile := filepath.Join(liveCertDir, domain+"-standalone.crt")
 				_ = writeFileAtomic(standaloneFile, origCertBytes, 0644)
@@ -232,6 +244,18 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 			if err != nil {
 				return fmt.Errorf("reading staged pem for %s: %w", domain, err)
 			}
+			standaloneFile := filepath.Join(liveCertDir, domain+"-standalone.crt")
+			_ = writeFileAtomic(standaloneFile, certBytes, 0644)
+
+			lrFile := filepath.Join(liveCertDir, domain+"-landmark-relative.pem")
+			if _, err := os.Stat(lrFile); os.IsNotExist(err) {
+				_ = writeFileAtomic(lrFile, certBytes, 0644)
+			}
+			taidFile := filepath.Join(liveCertDir, domain+".taid")
+			if _, err := os.Stat(taidFile); os.IsNotExist(err) {
+				_ = writeFileAtomic(taidFile, []byte("11129.11.99.1.1.1.999999\n"), 0644)
+			}
+
 			certFile := filepath.Join(liveCertDir, domain+".crt")
 			if err := writeFileAtomic(certFile, certBytes, 0644); err != nil {
 				return fmt.Errorf("installing cert %s: %w", certFile, err)
@@ -325,7 +349,11 @@ func run(domains []string, email, server, certPath, logURL, cli string, landmark
 		_ = sudoRun("systemctl", "restart", "bssl-tai.service")
 	}
 
-	logStep("Done. Certificate(s) for %s ready.", strings.Join(domains, ", "))
+	var domainNames []string
+	for _, sc := range staged {
+		domainNames = append(domainNames, sc.domain)
+	}
+	logStep("Done. Certificate(s) for %s ready.", strings.Join(domainNames, ", "))
 	return nil
 }
 
