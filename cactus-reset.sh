@@ -7,16 +7,17 @@ GO="${GO:-gotip}"
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEYS_DIR="$DEPLOY_DIR/keys"
 CACTUS_SRC="${CACTUS_SRC:-}"
+CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
 
 if [[ -z "$CACTUS_SRC" ]]; then
-    if [[ -d "$DEPLOY_DIR/.cactus-src" ]]; then
-        echo "==> Using local cactus repo at $DEPLOY_DIR/.cactus-src..."
-        CACTUS_SRC="$DEPLOY_DIR/.cactus-src"
+    if [[ -d "$CACTUS_DIR" ]]; then
+        echo "==> Using local cactus repo at $CACTUS_DIR..."
+        CACTUS_SRC="$CACTUS_DIR"
     else
         TMPDIR="$(mktemp -d)"
         trap '[[ -n "${TMPDIR:-}" ]] && rm -rf "$TMPDIR"' EXIT
         echo "==> Cloning cactus..."
-        git clone --depth 1 https://github.com/meacer/cactus.git "$TMPDIR/cactus"
+        git clone --depth 1 https://github.com/mcpherrinm/cactus.git "$TMPDIR/cactus"
         CACTUS_SRC="$TMPDIR/cactus"
     fi
 else

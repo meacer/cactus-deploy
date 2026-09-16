@@ -1,18 +1,17 @@
-// requestmtc.go requests a MTC certificate for a domain from a (local, e.g.
-// Pebble) ACME server via lego, then configures Apache to serve a small
-// hello-world site for that domain over HTTPS with an HTTP->HTTPS redirect.
+// requestmtc.go requests a MTC certificate for a domain from a local ACME server
+// via lego, then configures Nginx (in Docker) to serve a site for that domain
+// over HTTPS with an HTTP->HTTPS redirect.
 // Optionally, if -relative is true, it converts the issued standalone certificate
 // into its landmark-relative form (draft §6.3.3) via cactus-cli and uses that cert
-// in the Apache config for this domain instead of the standalone cert.
+// in the Nginx config for this domain instead of the standalone cert.
 //
 // Usage:
 //
-//	go run requestmtc.go -domain example.test
-//	go run requestmtc.go -domain example.test -relative
-//	go run requestmtc.go -domain example.test -relative -tai
-//	go run requestmtc.go -domain example.test -email me@example.com -relative -tai
-//	go run requestmtc.go -domain example.test -log https://ca1.test.mtcs.dev/1 -relative -tai
-//
+//	requestmtc -domain example.test
+//	requestmtc -domain example.test -relative
+//	requestmtc -domain example.test -relative -tai
+//	requestmtc -domain example.test -email me@example.com -relative -tai
+//	requestmtc -domain example.test -log https://ca1.test.mtcs.dev/1 -relative -tai
 package main
 
 import (
@@ -22,7 +21,6 @@ import (
 	"encoding/pem"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
@@ -45,7 +43,7 @@ func main() {
 	logURL := flag.String("log", "http://localhost:14080/1", "cactus log URL (monitoring endpoint + log number) used to build the landmark-relative cert")
 	cli := flag.String("cactus-cli", "cactus-cli", "path to the cactus-cli binary")
 	landmarkWait := flag.Duration("landmark-wait", 70*time.Minute, "how long to wait for a landmark covering the freshly issued entry")
-	relative := flag.Bool("relative", false, "whether to obtain and use a landmark-relative cert in Apache config")
+	relative := flag.Bool("relative", false, "whether to obtain and use a landmark-relative cert in Nginx config")
 	tai := flag.Bool("tai", false, "whether to attach a TAI CERTIFICATE PROPERTIES block to the landmark-relative cert")
 	flag.Parse()
 
@@ -269,77 +267,50 @@ func installCertsAndReload(staged []stagedCert, liveCertDir, cli string, useRela
 		}
 
 		// Create a document root with a basic hello-world page.
-		var hostDocRoot string
-		if _, err := exec.LookPath("a2ensite"); err == nil {
-			hostDocRoot = filepath.Join("/var/www", domain)
-		} else {
-			hostDocRoot, _ = filepath.Abs(filepath.Join("www", domain))
-		}
+		hostDocRoot, _ := filepath.Abs(filepath.Join("www", domain))
 		logStep("Creating document root %s", hostDocRoot)
 		if err := os.MkdirAll(hostDocRoot, 0755); err != nil {
-			_ = sudoRun("mkdir", "-p", hostDocRoot)
+			return fmt.Errorf("creating document root %s: %w", hostDocRoot, err)
 		}
 		indexPath := filepath.Join(hostDocRoot, "index.html")
 		if err := os.WriteFile(indexPath, []byte(indexHTML(domain)), 0644); err != nil {
-			_ = sudoWriteFile(indexPath, indexHTML(domain))
+			return fmt.Errorf("writing hello world page %s: %w", indexPath, err)
 		}
 		logStep("Hello world page written to %s", indexPath)
 
-		// Write web server VirtualHost config (<domain>.conf)
+		// Write Nginx VirtualHost config (<domain>.conf)
 		confName := domain + ".conf"
+		relCert, err := filepath.Rel(liveCertDir, certToUse)
+		if err != nil {
+			relCert = filepath.Base(certToUse)
+		}
+		containerCertPath := "/etc/certs/certificates/" + relCert
+		containerKeyPath := "/etc/certs/certificates/" + domain + ".key"
+		containerDocRoot := "/var/www/" + domain
 
-		if _, err := exec.LookPath("a2ensite"); err == nil {
-			// Standard non-Docker VM with host Apache installed
-			confPath := filepath.Join("/etc/apache2/sites-available", confName)
-			logStep("Writing Apache config %s (using certificate %s)", confPath, certToUse)
-			if err := sudoWriteFile(confPath, vhostConf(domain, hostDocRoot, certToUse, keyFile)); err != nil {
-				return fmt.Errorf("writing apache config for %s: %w", domain, err)
-			}
-			logStep("Enabling mod_ssl and site %s", confName)
-			_ = sudoRun("a2enmod", "ssl")
-			_ = sudoRun("a2ensite", confName)
-		} else {
-			// Docker-based setup (Nginx)
-			relCert, err := filepath.Rel(liveCertDir, certToUse)
-			if err != nil {
-				relCert = filepath.Base(certToUse)
-			}
-			containerCertPath := "/etc/certs/certificates/" + relCert
-			containerKeyPath := "/etc/certs/certificates/" + domain + ".key"
-			containerDocRoot := "/var/www/" + domain
-
-			hostSitesDir, err := filepath.Abs("sites-enabled")
-			if err != nil {
-				return fmt.Errorf("resolving sites-enabled dir: %w", err)
-			}
-			if err := os.MkdirAll(hostSitesDir, 0755); err != nil {
-				return fmt.Errorf("creating sites-enabled dir: %w", err)
-			}
-			confPath := filepath.Join(hostSitesDir, confName)
-			logStep("Writing Nginx config %s (container cert %s)", confPath, containerCertPath)
-			if err := os.WriteFile(confPath, []byte(nginxVhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
-				return fmt.Errorf("writing nginx config for %s: %w", domain, err)
-			}
+		hostSitesDir, err := filepath.Abs("sites-enabled")
+		if err != nil {
+			return fmt.Errorf("resolving sites-enabled dir: %w", err)
+		}
+		if err := os.MkdirAll(hostSitesDir, 0755); err != nil {
+			return fmt.Errorf("creating sites-enabled dir: %w", err)
+		}
+		confPath := filepath.Join(hostSitesDir, confName)
+		logStep("Writing Nginx config %s (container cert %s)", confPath, containerCertPath)
+		if err := os.WriteFile(confPath, []byte(nginxVhostConf(domain, containerDocRoot, containerCertPath, containerKeyPath)), 0644); err != nil {
+			return fmt.Errorf("writing nginx config for %s: %w", domain, err)
 		}
 	}
 
-	// 4. Reload web server once after all configs are written.
-	if _, err := exec.LookPath("a2ensite"); err == nil {
-		logStep("Validating Apache configuration")
-		if err := sudoRun("apache2ctl", "configtest"); err == nil {
-			logStep("Reloading Apache")
-			_ = sudoRun("systemctl", "reload-or-restart", "apache2")
-		}
+	// 4. Reload Nginx container once after all configs are written.
+	logStep("Reloading Nginx in Docker container (cactus-nginx-1)")
+	reloadCmd := exec.Command("docker", "exec", "cactus-nginx-1", "nginx", "-s", "reload")
+	reloadCmd.Stdout = os.Stdout
+	reloadCmd.Stderr = os.Stderr
+	if err := reloadCmd.Run(); err != nil {
+		log.Printf("==> warning: failed to reload Nginx container: %v", err)
 	} else {
-		logStep("Reloading Nginx in Docker container (cactus-nginx-1)")
-		reloadCmd := exec.Command("docker", "exec", "cactus-nginx-1", "nginx", "-s", "reload")
-		reloadCmd.Stdout = os.Stdout
-		reloadCmd.Stderr = os.Stderr
-		if err := reloadCmd.Run(); err != nil {
-			log.Printf("==> warning: failed to reload Nginx container: %v", err)
-		} else {
-			logStep("Nginx container reloaded successfully.")
-		}
+		logStep("Nginx container reloaded successfully.")
 	}
 
 	// 5. If bssl-tai.service is active/enabled on the host, restart it so it picks up
@@ -413,34 +384,6 @@ func indexHTML(domain string) string {
 `, domain, domain)
 }
 
-func vhostConf(domain, docRoot, certFile, keyFile string) string {
-	return fmt.Sprintf(`<VirtualHost *:80>
-    ServerName %[1]s
-    ProxyPreserveHost On
-    ProxyPass /.well-known/acme-challenge/ !
-    Redirect permanent / https://%[1]s/
-</VirtualHost>
-
-<VirtualHost *:443>
-    ServerName %[1]s
-    DocumentRoot %[2]s
-
-    SSLEngine on
-    SSLCertificateFile %[3]s
-    SSLCertificateKeyFile %[4]s
-
-    # Pebble test certs use a weak signature digest that OpenSSL's default
-    # security level (2) rejects; lower it so Apache will load the cert.
-    # See https://github.com/openssl/openssl/issues/31195
-    SSLCipherSuite DEFAULT:@SECLEVEL=0
-
-    <Directory %[2]s>
-        Require all granted
-    </Directory>
-</VirtualHost>
-`, domain, docRoot, certFile, keyFile)
-}
-
 func nginxVhostConf(domain, docRoot, certFile, keyFile string) string {
 	return fmt.Sprintf(`server {
     listen 80;
@@ -493,16 +436,6 @@ func sudoRun(name string, args ...string) error {
 	cmd := exec.Command("sudo", append([]string{name}, args...)...)
 	log.Printf("running: %s", strings.Join(cmd.Args, " "))
 	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	return cmd.Run()
-}
-
-// sudoWriteFile writes content to a root-owned path via `sudo tee`.
-func sudoWriteFile(path, content string) error {
-	log.Printf("writing: %s (%d bytes)", path, len(content))
-	cmd := exec.Command("sudo", "tee", path)
-	cmd.Stdin = strings.NewReader(content)
-	cmd.Stdout = io.Discard // tee echoes stdin; we don't need it on the terminal
 	cmd.Stderr = os.Stderr
 	return cmd.Run()
 }
@@ -607,4 +540,3 @@ func copyDir(src, dst string) error {
 		return os.WriteFile(target, data, info.Mode())
 	})
 }
-

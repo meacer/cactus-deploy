@@ -1,9 +1,8 @@
 # data
 
-Files here aren't used on your local machine — `deploy.sh` copies them to the
-GCP VM and they're installed/run there (Apache configs, VM setup script,
-`requestmtc.go`).
+Configuration files, scripts, and Go tools used by `docker-deploy.sh`.
 
-`requestmtc.go` is installed to `/usr/local/share/cactus/requestmtc.go` and run
-from source on the VM with `go run` (see the top-level README). It shells out to
-`lego` and to `cactus-cli`, both of which the deploy puts on the VM's PATH.
+During deployment:
+- `generatemirrorindex.go` is run locally to generate the mirror index page.
+- `requestmtc.go` is built locally into `out/requestmtc` and installed on the VM at `/var/lib/toolbox/bin/requestmtc`.
+- Configs (`cactus-config-docker.json`, `compose.override.yaml`, `nginx.conf`, `skylight.yaml`) and helper scripts (`request-certs.sh`, `request-demo-domain-certs.sh`, `generate-demo-html.sh`, `run-bssl-tai.sh`) are copied to `~/docker/` on the GCP VM.

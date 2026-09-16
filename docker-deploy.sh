@@ -1,8 +1,18 @@
+#!/usr/bin/env bash
+# Build and deploy the containerized cactus MTC CA stack (cactus, sunlight,
+# skylight, nginx, certbot) to a GCP VM.
+# Usage:
+#   ./docker-deploy.sh
+#   ./docker-deploy.sh --enable-tai
+#   ./docker-deploy.sh --setup-firewall
+#   ./docker-deploy.sh --vm=my-vm --zone=us-east1-b --project=myproject
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
 source "$DEPLOY_DIR/config.sh"
+
+SETUP_FIREWALL="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -14,12 +24,61 @@ while [[ $# -gt 0 ]]; do
       ENABLE_TAI="false"
       shift
       ;;
+    --setup-firewall)
+      SETUP_FIREWALL="true"
+      shift
+      ;;
+    --vm=*)
+      VM="${1#*=}"
+      shift
+      ;;
+    --zone=*)
+      ZONE="${1#*=}"
+      shift
+      ;;
+    --project=*)
+      PROJECT="${1#*=}"
+      shift
+      ;;
     *)
       echo "Unknown argument: $1" >&2
       exit 1
       ;;
   esac
 done
+
+if [[ -z "$VM" || -z "$ZONE" || -z "$PROJECT" ]]; then
+  echo "Error: VM, zone, and project must not be empty." >&2
+  exit 1
+fi
+
+if [[ "$SETUP_FIREWALL" == "true" ]]; then
+  VM_SA=$(gcloud compute instances describe "$VM" --project="$PROJECT" --zone="$ZONE" --format="get(serviceAccounts[0].email)")
+
+  echo "Creating firewall rules to allow SSH, HTTP, and HTTPS traffic to the VM service account $VM_SA"
+  gcloud compute firewall-rules create allow-http-https \
+    --project="$PROJECT" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:22,tcp:80,tcp:443 \
+    --source-ranges=0.0.0.0/0 \
+    --target-service-accounts="$VM_SA" || true
+
+  # Ports published by the compose stack: 14000 (ACME), 14080 (monitoring /
+  # tiles), 14090 (metrics) from cactus; 8080 (sunlight), 8081 (skylight).
+  echo "Creating firewall rules to allow Cactus traffic to the VM service account $VM_SA"
+  gcloud compute firewall-rules create allow-cactus \
+    --project="$PROJECT" \
+    --direction=INGRESS \
+    --priority=1000 \
+    --network=default \
+    --action=ALLOW \
+    --rules=tcp:8080,tcp:8081,tcp:14000,tcp:14080,tcp:14090 \
+    --source-ranges=0.0.0.0/0 \
+    --target-service-accounts="$VM_SA" || true
+fi
 
 GO="${GO:-$HOME/go/bin/gotip}"
 if ! command -v "$GO" >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
@@ -56,6 +115,17 @@ if [ "${ENABLE_TAI:-false}" = "true" ] || [ ! -x "$OUT_DIR/bssl" ]; then
     exit 1
   fi
 fi
+
+# The cactus:local and sunlight:local images are built out-of-band from
+# $CACTUS_DIR, not by this script. Fail early with a useful message rather than
+# letting `docker save` report a bare "reference does not exist".
+for image in cactus:local sunlight:local; do
+  if ! docker image inspect "$image" >/dev/null 2>&1; then
+    echo "Error: Docker image $image not found locally. Build the images first:" >&2
+    echo "  make -C $CACTUS_DIR docker-build" >&2
+    exit 1
+  fi
+done
 
 docker save cactus:local   | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "gunzip | docker load"
 
