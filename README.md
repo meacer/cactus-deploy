@@ -24,12 +24,24 @@ make deploy CACTUS_PROJECT=myproject CACTUS_VM=my-vm CACTUS_ZONE=us-east1-b   # 
 
 | Variable | Default | Repository | Branch |
 | --- | --- | --- | --- |
-| `CACTUS_DIR` | `~/src/mcpherrinm-cactus` | [mcpherrinm/cactus](https://github.com/mcpherrinm/cactus) | `main` |
+| `CACTUS_DIR` | `~/src/meacer-cactus` | [meacer/cactus](https://github.com/meacer/cactus), a fork of [mcpherrinm/cactus](https://github.com/mcpherrinm/cactus) | `main` |
 | `BORINGSSL_DIR` | `~/src/meacer-boringssl` | [meacer/boringssl](https://github.com/meacer/boringssl) | `tai-server` |
 
+`CACTUS_DIR` is a clone of the fork with upstream as a second remote. The fork
+exists only so branches can be pushed for pull requests — we have no write
+access to `mcpherrinm/cactus` — while builds always come from upstream `main`:
+
 ```sh
-git clone https://github.com/mcpherrinm/cactus.git ~/src/mcpherrinm-cactus
+git clone https://github.com/meacer/cactus.git ~/src/meacer-cactus
+cd ~/src/meacer-cactus
+git remote add upstream https://github.com/mcpherrinm/cactus.git
+git fetch upstream
+git merge --ff-only upstream/main
 ```
+
+> [!IMPORTANT]
+> Re-run the last three commands before deploying after an upstream change.
+> Nothing checks this, so a stale `main` silently deploys an old cactus.
 
 `BORINGSSL_DIR` is only needed for the TAI demo site; `docker-deploy.sh` offers
 to clone it for you.
@@ -53,7 +65,7 @@ pushes these to the VM but does not build them, so this must be done at least
 once, and again whenever the cactus source changes:
 
 ```sh
-make -C ~/src/mcpherrinm-cactus docker-build
+make -C ~/src/meacer-cactus docker-build
 ```
 
 Generate CA + witness keys (only needed when creating new keys, e.g., after `./cactus-reset.sh`):

@@ -9,7 +9,7 @@
 set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
+CACTUS_DIR="${CACTUS_DIR:-$HOME/src/meacer-cactus}"
 source "$DEPLOY_DIR/config.sh"
 
 SETUP_FIREWALL="false"
