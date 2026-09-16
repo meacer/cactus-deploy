@@ -34,6 +34,12 @@ git clone https://github.com/mcpherrinm/cactus.git ~/src/mcpherrinm-cactus
 `BORINGSSL_DIR` is only needed for the TAI demo site; `docker-deploy.sh` offers
 to clone it for you.
 
+This deployment patches three files from the cactus repo's `docker/` directory
+(`skylight.yaml`, `init-sunlight.sh`, `sunlight.yaml.tmpl`). The patched copies
+live in `data/` and are copied over the originals on the VM at deploy time, so
+a clean checkout of `main` is all that is required — see the header comment in
+each file for the delta.
+
 This repo requires Go 1.27+. Until a release is available, use `gotip`:
 
 ```sh

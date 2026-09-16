@@ -135,8 +135,17 @@ docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --pr
 cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
-# Override with custom configs from cactus-deploy:
-gcloud compute scp "$DEPLOY_DIR/data/nginx.conf" "$DEPLOY_DIR/data/compose.override.yaml" "$DEPLOY_DIR/data/skylight.yaml" "$DEPLOY_DIR/data/run-bssl-tai.sh" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
+# Override with custom configs from cactus-deploy. init-sunlight.sh and
+# sunlight.yaml.tmpl are patched copies of the cactus repo's versions; see the
+# header comment in each for the delta.
+gcloud compute scp \
+  "$DEPLOY_DIR/data/nginx.conf" \
+  "$DEPLOY_DIR/data/compose.override.yaml" \
+  "$DEPLOY_DIR/data/skylight.yaml" \
+  "$DEPLOY_DIR/data/init-sunlight.sh" \
+  "$DEPLOY_DIR/data/sunlight.yaml.tmpl" \
+  "$DEPLOY_DIR/data/run-bssl-tai.sh" \
+  "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 if [ -x "$OUT_DIR/bssl" ]; then
   gcloud compute scp "$OUT_DIR/bssl" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 fi
