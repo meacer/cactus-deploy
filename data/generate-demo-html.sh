@@ -733,7 +733,7 @@ EOF
           <strong>Relaunch Chrome:</strong> Click the <strong>Relaunch</strong> button at the bottom of the flags page.
         </li>
         <li>
-          <strong>Ensure PKI Metadata is Up to Date:</strong> Open <code>chrome://components</code>, locate <strong>PKI Metadata</strong> (or <strong>PKI Metadata Fastpush</strong>), and click <strong>Check for update</strong> so your browser has the latest MTC landmark group trust anchors.
+          <strong>Ensure PKI Metadata is Up to Date:</strong> Open <code>chrome://components</code>, locate <strong>PKI Metadata Fastpush</strong> and click <strong>Check for update</strong> so your browser has the latest MTC landmark group trust anchors.
         </li>
         <li>
           <strong>Reload this page:</strong> Reload <a href="https://${domain}/">https://${domain}/</a> (or open in a new <strong>Incognito window</strong> / flush sockets at <code>chrome://net-internals/#sockets</code> to establish a new TLS connection). Once TAI is negotiated, this page will automatically display the full MTC certificate dashboard!
