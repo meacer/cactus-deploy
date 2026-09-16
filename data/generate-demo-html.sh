@@ -496,4 +496,260 @@ ${standalone_section}
 </html>
 EOF
     echo "==> Generated ${out_html} (entry index #${entry_index}, landmark #${lm_num:-none})"
+
+    if [[ "$domain" == "tai.demo.mtcs.dev" || "$domain" == "demo.mtcs.dev" ]]; then
+        no_tai_dir="${WWW_ROOT}/${domain}-no-tai"
+        mkdir -p "$no_tai_dir"
+        no_tai_html="${no_tai_dir}/index.html"
+        cat > "$no_tai_html" <<EOF
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>${domain} &mdash; Enable TAI &amp; MTCs in Chrome</title>
+  <style>
+    :root {
+      color-scheme: light;
+    }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      padding: 2rem 1rem 3.5rem;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: #f8fafc;
+      color: #0f172a;
+      line-height: 1.5;
+    }
+    .container {
+      max-width: 960px;
+      margin: 0 auto;
+    }
+    nav {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 1.5rem;
+    }
+    nav a {
+      text-decoration: none;
+      font-size: 0.85rem;
+      font-weight: 500;
+      color: #475569;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      padding: 0.4rem 0.75rem;
+      border-radius: 6px;
+      transition: all 0.15s ease;
+    }
+    nav a:hover {
+      border-color: #cbd5e1;
+      color: #0f172a;
+    }
+    nav a.active {
+      background: #0f172a;
+      color: #ffffff;
+      border-color: #0f172a;
+    }
+    .panel {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 1.25rem;
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.03);
+    }
+    .panel-warn {
+      border-left: 4px solid #f59e0b;
+    }
+    .title-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      margin-bottom: 0.35rem;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 0;
+      color: #0f172a;
+    }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.65rem;
+      border-radius: 9999px;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .badge-warning {
+      background: #fffbeb;
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .badge-standalone {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border: 1px solid #bfdbfe;
+    }
+    .subtitle {
+      color: #4b5563;
+      font-size: 0.94rem;
+      margin: 0.5rem 0 0 0;
+    }
+    h2 {
+      font-size: 0.95rem;
+      font-weight: 600;
+      color: #0f172a;
+      margin: 0 0 0.85rem 0;
+    }
+    ol.steps {
+      margin: 0;
+      padding-left: 1.35rem;
+      color: #1e293b;
+      font-size: 0.93rem;
+    }
+    ol.steps li {
+      margin-bottom: 0.75rem;
+    }
+    ol.steps li:last-child {
+      margin-bottom: 0;
+    }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+      font-size: 0.86em;
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 0.15rem 0.42rem;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+      user-select: all;
+    }
+    pre {
+      margin: 0.75rem 0 0 0;
+      padding: 1rem 1.15rem;
+      background: #1e293b;
+      color: #e2e8f0;
+      border-radius: 6px;
+      overflow-x: auto;
+      font-size: 0.82rem;
+      line-height: 1.55;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    }
+    pre code {
+      background: transparent;
+      color: inherit;
+      padding: 0;
+      border: none;
+      font-size: inherit;
+      user-select: text;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.92rem;
+      margin-top: 0.75rem;
+    }
+    th, td {
+      text-align: left;
+      vertical-align: top;
+      padding: 0.65rem 0.25rem;
+      border-bottom: 1px solid #f3f4f6;
+    }
+    tr:last-child th, tr:last-child td {
+      border-bottom: none;
+    }
+    th {
+      width: 32%;
+      color: #4b5563;
+      font-weight: 500;
+    }
+    td {
+      color: #111827;
+    }
+    .val-strong {
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .meta {
+      color: #6b7280;
+      font-size: 0.86rem;
+      margin-left: 0.35rem;
+    }
+    .meta-sub {
+      color: #6b7280;
+      font-size: 0.83rem;
+      margin-top: 0.2rem;
+    }
+    .hl-header {
+      color: #f8fafc;
+      font-weight: 600;
+    }
+    .hl-section {
+      color: #93c5fd;
+      font-weight: 600;
+    }
+    .hl-key {
+      color: #7dd3fc;
+    }
+    .hl-val {
+      color: #fde68a;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <nav>
+      <a href="https://standalone.demo.mtcs.dev/">standalone.demo.mtcs.dev</a>
+      <a href="https://relative.demo.mtcs.dev/">relative.demo.mtcs.dev</a>
+      <a href="https://landmark-relative.demo.mtcs.dev/">landmark-relative.demo.mtcs.dev</a>
+      <a href="https://tai.demo.mtcs.dev/" class="$([ "$domain" = "tai.demo.mtcs.dev" ] && echo active || true)">tai.demo.mtcs.dev</a>
+      <a href="https://demo.mtcs.dev/" class="$([ "$domain" = "demo.mtcs.dev" ] && echo active || true)">demo.mtcs.dev</a>
+    </nav>
+
+    <div class="panel panel-warn">
+      <div class="title-row">
+        <h1>${domain} &mdash; TAI &amp; MTCs Not Enabled</h1>
+        <span class="badge badge-warning">Standalone Fallback Served</span>
+      </div>
+      <p class="subtitle">
+        Your browser connected without negotiating TLS Trust Anchor IDs (<code>trust_anchors</code> extension) or did not advertise a matching Merkle Tree Certificate (MTC) landmark group ID. To prevent SSL connection errors, the server automatically served a full <strong>Standalone MTC</strong> fallback certificate instead of the compact <strong>Landmark-Relative MTC</strong>.
+      </p>
+    </div>
+
+    <div class="panel">
+      <h2>How to Enable Trust Anchor IDs (TAI) &amp; MTCs in Chrome</h2>
+      <ol class="steps">
+        <li>
+          <strong>Enable TLS Trust Anchor IDs:</strong> Open <code>chrome://flags/#tls-trust-anchor-ids</code> in a new tab and set <strong>TLS Trust Anchor IDs</strong> to <strong>Enabled</strong>.
+        </li>
+        <li>
+          <strong>Enable Verify MTCs:</strong> Open <code>chrome://flags/#verify-mtcs</code> and set <strong>Verify MTCs</strong> to <strong>Enabled</strong>.
+        </li>
+        <li>
+          <strong>Relaunch Chrome:</strong> Click the <strong>Relaunch</strong> button at the bottom of the flags page.
+        </li>
+        <li>
+          <strong>Ensure PKI Metadata is Up to Date:</strong> Open <code>chrome://components</code>, locate <strong>PKI Metadata</strong> (or <strong>PKI Metadata Fastpush</strong>), and click <strong>Check for update</strong> so your browser has the latest MTC landmark group trust anchors.
+        </li>
+        <li>
+          <strong>Reload this page:</strong> Reload <a href="https://${domain}/">https://${domain}/</a> (or open in a new <strong>Incognito window</strong> / flush sockets at <code>chrome://net-internals/#sockets</code> to establish a new TLS connection). Once TAI is negotiated, this page will automatically display the full MTC certificate dashboard!
+        </li>
+      </ol>
+      <p class="subtitle" style="margin-top: 1rem;">
+        <strong>Command-line alternative:</strong> Launch Chrome directly with:<br>
+        <code>google-chrome --enable-features=TLSTrustAnchorIDs,VerifyMTCs https://${domain}/</code>
+      </p>
+    </div>
+
+${standalone_section}
+  </div>
+</body>
+</html>
+EOF
+        echo "==> Generated ${no_tai_html} (non-TAI instructions page)"
+    fi
 done

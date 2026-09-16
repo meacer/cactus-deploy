@@ -15,6 +15,7 @@ sudo iptables -C INPUT -p tcp --dport 8444 -j ACCEPT 2>/dev/null || sudo iptable
 run_bssl_for_domain() {
     local domain="$1"
     local port="$2"
+    local fallback_proxy="${3:-}"
 
     local key_file="${CERT_DIR}/${domain}.key"
     local lr_cert="${CERT_DIR}/${domain}-landmark-relative.pem"
@@ -33,6 +34,11 @@ run_bssl_for_domain() {
         fallback_args=(-tai-fallback-cert "$fallback_cert")
     fi
 
+    local proxy_args=(-proxy 127.0.0.1:9999)
+    if [[ -n "$fallback_proxy" ]]; then
+        proxy_args+=(-tai-fallback-proxy "$fallback_proxy")
+    fi
+
     echo "==> [$(date -u)] Starting bssl server for ${domain} on port ${port} (Trust Anchor ID: ${taid})"
     exec "$BSSL_BIN" server \
         -accept "$port" \
@@ -40,13 +46,13 @@ run_bssl_for_domain() {
         -cert "$lr_cert" \
         "${fallback_args[@]}" \
         -trust-anchor-id "$taid" \
-        -proxy 127.0.0.1:9999 \
+        "${proxy_args[@]}" \
         -loop
 }
 
 trap 'kill $(jobs -p) 2>/dev/null || true' EXIT INT TERM
 
 run_bssl_for_domain "tai.demo.mtcs.dev" 8443 &
-run_bssl_for_domain "demo.mtcs.dev" 8444 &
+run_bssl_for_domain "demo.mtcs.dev" 8444 "127.0.0.1:9998" &
 
 wait -n
