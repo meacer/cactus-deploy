@@ -241,7 +241,11 @@ fi
 cd ~/docker
 \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml up -d --remove-orphans
 
-for domain in ca1.test.mtcs.dev mirror1.test.mtcs.dev; do
+CERTBOT_DOMAINS="ca1.test.mtcs.dev mirror1.test.mtcs.dev"
+if [ "${ENABLE_TAI}" = "true" ]; then
+  CERTBOT_DOMAINS="\$CERTBOT_DOMAINS demo.mtcs.dev"
+fi
+for domain in \$CERTBOT_DOMAINS; do
   if ! sudo test -f "./letsencrypt/live/\$domain/fullchain.pem"; then
     echo "==> Requesting Let's Encrypt certificate for \$domain..."
     \$COMPOSE_CMD -f compose.yaml -f compose.override.yaml exec -T certbot \

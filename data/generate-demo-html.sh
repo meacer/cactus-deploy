@@ -713,10 +713,10 @@ EOF
     <div class="panel panel-warn">
       <div class="title-row">
         <h1>${domain} &mdash; TAI &amp; MTCs Not Enabled</h1>
-        <span class="badge badge-warning">Standalone Fallback Served</span>
+        <span class="badge badge-warning">WebPKI Fallback Served</span>
       </div>
       <p class="subtitle">
-        Your browser connected without negotiating TLS Trust Anchor IDs (<code>trust_anchors</code> extension) or did not advertise a matching Merkle Tree Certificate (MTC) landmark group ID. To prevent SSL connection errors, the server automatically served a full <strong>Standalone MTC</strong> fallback certificate instead of the compact <strong>Landmark-Relative MTC</strong>.
+        Your browser connected without negotiating TLS Trust Anchor IDs (<code>trust_anchors</code> extension) or did not advertise a matching Merkle Tree Certificate (MTC) landmark group ID. To prevent SSL connection errors on standard browsers, the server served a standard <strong>Let&rsquo;s Encrypt WebPKI certificate</strong> instead of the compact <strong>Landmark-Relative MTC</strong>.
       </p>
     </div>
 

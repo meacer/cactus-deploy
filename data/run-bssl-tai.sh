@@ -29,8 +29,12 @@ run_bssl_for_domain() {
 
     local taid
     taid="$(tr -d '[:space:]' < "$taid_file")"
+    local le_cert="/home/meacer/docker/letsencrypt/live/${domain}/fullchain.pem"
+    local le_key="/home/meacer/docker/letsencrypt/live/${domain}/privkey.pem"
     local fallback_args=()
-    if [[ -f "$fallback_cert" ]]; then
+    if [[ -f "$le_cert" && -f "$le_key" ]]; then
+        fallback_args=(-tai-fallback-cert "$le_cert" -tai-fallback-key "$le_key")
+    elif [[ -f "$fallback_cert" ]]; then
         fallback_args=(-tai-fallback-cert "$fallback_cert")
     fi
 
