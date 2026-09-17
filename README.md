@@ -46,15 +46,38 @@ gcloud compute instances create cactus-testing \
 > That path is COS-specific, and it is hardcoded throughout `docker-deploy.sh`
 > and in the commands below.
 
-**5. Deploy:**
+**5. Create the CA identity.** Skip this if the secrets already exist — check
+with `gcloud secrets list --project=meacer`. Nothing in this repo uploads them,
+so a brand-new deployment has to do it once, by hand:
+
+```sh
+./cactus-reset.sh   # writes seeds and public keys to keys/
+
+gcloud secrets create ca1-cosigner-seed     --project=meacer --data-file=keys/ca-cosigner.seed
+gcloud secrets create mirror1-cosigner-seed --project=meacer --data-file=keys/witness-cosigner.seed
+gcloud secrets create ca1-public-key        --project=meacer --data-file=keys/ca-cosigner.pem
+gcloud secrets create mirror1-public-key    --project=meacer --data-file=keys/witness-cosigner.pem
+```
+
+Only the two `*-cosigner-seed` secrets are read by `docker-deploy.sh`; the
+public keys are stored for reference.
+
+> [!WARNING]
+> Re-running `./cactus-reset.sh` mints a **new CA identity**. The existing log,
+> certificates, and published keys will no longer verify against it. To rotate
+> deliberately, add a new version with `gcloud secrets versions add` rather than
+> `create`.
+
+**6. Deploy:**
 
 ```sh
 make setup     # first time only — also creates the GCP firewall rules
 make deploy    # every time after
 ```
 
-You need no key material locally: the cosigner seeds are pulled from GCP Secret
-Manager at deploy time and installed into the VM's Docker volumes.
+Once the secrets exist, no local key material is needed: `docker-deploy.sh`
+pulls the seeds from Secret Manager on every deploy and installs them into the
+VM's Docker volumes.
 
 > [!IMPORTANT]
 > Nothing checks that your cactus checkout is current. After an upstream change,
@@ -134,13 +157,9 @@ cd ~/docker
 docker volume rm cactus_cactus-data cactus_sunlight-data
 ```
 
-**Start a new CA identity** (local). Generates fresh CA and witness cosigner
-keys into `keys/`, replacing the existing ones. You do not need this to deploy —
-only to stand up a CA with a new identity.
-
-```sh
-./cactus-reset.sh
-```
+**Start a new CA identity** — see step 5. Note that `./cactus-reset.sh` only
+rewrites `keys/` locally; the deploy keeps using Secret Manager until you push
+the new seeds there with `gcloud secrets versions add`.
 
 **Delete the VM:**
 
