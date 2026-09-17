@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Generate fresh CA and witness cosigner keys. Run this to start a new
+# Generate fresh CA and mirror cosigner keys. Run this to start a new
 # CA identity (e.g. after nuking the VM). Overwrites existing keys.
+# Sunlight derives both its witness and mirror keys from the mirror seed.
 set -euo pipefail
 
 GO="${GO:-gotip}"
@@ -34,11 +35,11 @@ cd "$CACTUS_SRC"
 
 echo "==> Generating seeds..."
 $GO run ./cmd/cactus-keygen -f -o "$KEYS_DIR/ca-cosigner.seed"
-$GO run ./cmd/cactus-keygen -f -o "$KEYS_DIR/witness-cosigner.seed"
+$GO run ./cmd/cactus-keygen -f -o "$KEYS_DIR/mirror-cosigner.seed"
 
 echo "==> Deriving public keys..."
 $GO run ./cmd/cactus-keygen -pub -o "$KEYS_DIR/ca-cosigner.seed" > "$KEYS_DIR/ca-cosigner.pem"
-$GO run ./cmd/cactus-keygen -pub -o "$KEYS_DIR/witness-cosigner.seed" > "$KEYS_DIR/witness-cosigner.pem"
+$GO run ./cmd/cactus-keygen -pub -o "$KEYS_DIR/mirror-cosigner.seed" > "$KEYS_DIR/mirror-cosigner.pem"
 
 echo "==> Done. Keys in $KEYS_DIR:"
 ls -l "$KEYS_DIR"

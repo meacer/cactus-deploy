@@ -94,7 +94,7 @@ OUT_DIR="$DEPLOY_DIR/out"
 mkdir -p "$OUT_DIR"
 
 # Generate mirror index HTML page locally before deployment:
-"$GO" run "$DEPLOY_DIR/data/generatemirrorindex.go" -config "$DEPLOY_DIR/data/cactus-config-docker.json" -key "$DEPLOY_DIR/keys/witness-cosigner.pem" -out "$OUT_DIR/www/mirror1/index.html"
+"$GO" run "$DEPLOY_DIR/data/generatemirrorindex.go" -config "$DEPLOY_DIR/data/cactus-config-docker.json" -key "$DEPLOY_DIR/keys/mirror-cosigner.pem" -out "$OUT_DIR/www/mirror1/index.html"
 
 echo "==> Building cactus-cli and requestmtc binaries to $OUT_DIR..."
 (cd "$CACTUS_DIR" && GOOS=linux GOARCH=amd64 "$GO" build -o "$OUT_DIR/cactus-cli" ./cmd/cactus-cli)
@@ -173,7 +173,7 @@ else
   echo "  Warning: could not fetch ca1-cosigner-seed from Secret Manager"
 fi
 
-if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/witness-seed.bin" 2>/dev/null; then
+if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/mirror-cosigner.seed" 2>/dev/null; then
   echo "  Downloaded mirror1-cosigner-seed"
   HAS_MIRROR_SEED=true
 else
@@ -198,10 +198,13 @@ if [ -f /tmp/cactus-keys/ca-cosigner.seed ]; then
     alpine sh -c "mkdir -p /var/lib/cactus/keys && cp /keys/ca-cosigner.seed /var/lib/cactus/keys/ca-cosigner.seed && chmod 600 /var/lib/cactus/keys/ca-cosigner.seed"
 fi
 
-if [ -f /tmp/cactus-keys/witness-seed.bin ]; then
-  echo "==> Populating witness-seed.bin into cactus_sunlight-data volume..."
+# The in-volume name is fixed by upstream's sunlight.yaml.tmpl and
+# init-sunlight.sh, so it stays witness-seed.bin regardless of what we call the
+# seed locally.
+if [ -f /tmp/cactus-keys/mirror-cosigner.seed ]; then
+  echo "==> Populating mirror-cosigner.seed into cactus_sunlight-data volume as witness-seed.bin..."
   docker run --rm -v cactus_sunlight-data:/var/lib/sunlight -v /tmp/cactus-keys:/keys:ro \
-    alpine sh -c "mkdir -p /var/lib/sunlight && cp /keys/witness-seed.bin /var/lib/sunlight/witness-seed.bin && chmod 600 /var/lib/sunlight/witness-seed.bin"
+    alpine sh -c "mkdir -p /var/lib/sunlight && cp /keys/mirror-cosigner.seed /var/lib/sunlight/witness-seed.bin && chmod 600 /var/lib/sunlight/witness-seed.bin"
 fi
 
 rm -rf /tmp/cactus-keys

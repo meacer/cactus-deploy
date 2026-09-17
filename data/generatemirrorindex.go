@@ -109,7 +109,7 @@ const htmlTemplate = `<!DOCTYPE html>
 func main() {
 	configPath := flag.String("config", "data/cactus-config-docker.json", "path to cactus config json")
 	outPath := flag.String("out", "out/www/mirror1/index.html", "output index.html path")
-	keyPath := flag.String("key", "keys/witness-cosigner.pem", "path to mirror cosigner PEM key")
+	keyPath := flag.String("key", "keys/mirror-cosigner.pem", "path to mirror cosigner PEM key")
 	flag.Parse()
 
 	data, err := os.ReadFile(*configPath)

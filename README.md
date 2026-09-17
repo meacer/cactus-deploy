@@ -54,9 +54,9 @@ so a brand-new deployment has to do it once, by hand:
 ./cactus-reset.sh   # writes seeds and public keys to keys/
 
 gcloud secrets create ca1-cosigner-seed     --project=meacer --data-file=keys/ca-cosigner.seed
-gcloud secrets create mirror1-cosigner-seed --project=meacer --data-file=keys/witness-cosigner.seed
+gcloud secrets create mirror1-cosigner-seed --project=meacer --data-file=keys/mirror-cosigner.seed
 gcloud secrets create ca1-public-key        --project=meacer --data-file=keys/ca-cosigner.pem
-gcloud secrets create mirror1-public-key    --project=meacer --data-file=keys/witness-cosigner.pem
+gcloud secrets create mirror1-public-key    --project=meacer --data-file=keys/mirror-cosigner.pem
 ```
 
 Only the two `*-cosigner-seed` secrets are read by `docker-deploy.sh`; the
