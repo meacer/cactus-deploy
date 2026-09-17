@@ -29,7 +29,8 @@ make -C ~/src/mcpherrinm-cactus docker-build
 cp config.example.sh config.sh
 ```
 
-**4. Create the VM** (skip if it already exists):
+**4. Create the VM** (skip if it already exists). It **must** be Container-Optimized
+OS — `--image-family=cos-stable --image-project=cos-cloud`:
 
 ```sh
 gcloud compute instances create cactus-testing \
@@ -37,6 +38,13 @@ gcloud compute instances create cactus-testing \
     --machine-type=e2-standard-2 \
     --image-family=cos-stable --image-project=cos-cloud
 ```
+
+> [!IMPORTANT]
+> Do not substitute Debian or Ubuntu. COS ships Docker preinstalled and has a
+> read-only `/usr`, so the deploy installs every binary (`cactus-cli`,
+> `requestmtc`, `docker-compose`, `lego`, `bssl`) to `/var/lib/toolbox/bin`.
+> That path is COS-specific, and it is hardcoded throughout `docker-deploy.sh`
+> and in the commands below.
 
 **5. Deploy:**
 
