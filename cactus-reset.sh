@@ -7,7 +7,7 @@ GO="${GO:-gotip}"
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEYS_DIR="$DEPLOY_DIR/keys"
 CACTUS_SRC="${CACTUS_SRC:-}"
-CACTUS_DIR="${CACTUS_DIR:-$HOME/src/meacer-cactus}"
+CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
 
 if [[ -z "$CACTUS_SRC" ]]; then
     if [[ -d "$CACTUS_DIR" ]]; then

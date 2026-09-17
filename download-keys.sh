@@ -1,6 +1,5 @@
 set -euo pipefail
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-CACTUS_DIR="${CACTUS_DIR:-$HOME/src/meacer-cactus}"
 source "$DEPLOY_DIR/config.sh" 
 
 KEYS_DIR="~/src/cactus-keys-from-gcp"
