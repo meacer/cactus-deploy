@@ -1,77 +1,13 @@
 # cactus-deploy
 
-Deploy scripts for the containerized cactus MTC CA stack (`cactus`, `sunlight`, `skylight`, `nginx`, `certbot`) on a GCP VM.
+Deploy scripts for the containerized cactus MTC CA stack (`cactus`, `sunlight`,
+`skylight`, `nginx`, `certbot`) on a GCP VM.
 
-All commands run on your **local machine** unless noted otherwise. `make setup`
-and `make deploy` (or `./docker-deploy.sh`) build the helper binaries locally, push
-the locally-built Docker images and configs to the VM, and start the stack. The
-`cactus:local` and `sunlight:local` images themselves are built separately, in
-the cactus repo (see Prerequisites).
+Everything runs on your **local machine** unless a section says otherwise.
 
-## Prerequisites (local, one-time)
+## Quick start
 
-VM name, zone, and GCP project come from `config.sh`, which is gitignored so
-each deployment can point somewhere different. Create it from the template and
-fill in your values:
-
-```sh
-cp config.example.sh config.sh
-```
-
-Override any of them per-invocation without editing the file:
-
-```sh
-make deploy                                                          # uses config.sh defaults
-make deploy CACTUS_PROJECT=myproject CACTUS_VM=my-vm CACTUS_ZONE=us-east1-b   # override
-./docker-deploy.sh --vm=my-vm --zone=us-east1-b --project=myproject
-```
-
-`docker-deploy.sh` builds from two local checkouts:
-
-| Variable | Default | Repository | Branch |
-| --- | --- | --- | --- |
-| `CACTUS_DIR` | `~/src/mcpherrinm-cactus` | [mcpherrinm/cactus](https://github.com/mcpherrinm/cactus) | `main` |
-| `BORINGSSL_DIR` | `~/src/meacer-boringssl` | [meacer/boringssl](https://github.com/meacer/boringssl) | `tai-server` |
-
-`CACTUS_DIR` is a plain clone of upstream. Deployments always ship upstream
-`main`, so there is no reason to point this at a fork:
-
-```sh
-git clone https://github.com/mcpherrinm/cactus.git ~/src/mcpherrinm-cactus
-```
-
-Update it before deploying after an upstream change:
-
-```sh
-git -C ~/src/mcpherrinm-cactus pull --ff-only
-```
-
-> [!IMPORTANT]
-> Nothing checks this. `docker-deploy.sh` builds from whatever is in the
-> working tree, so a stale checkout silently deploys an old cactus.
-
-If you also have a fork (e.g. [meacer/cactus](https://github.com/meacer/cactus))
-for pushing pull-request branches — we have no write access to
-`mcpherrinm/cactus` — keep it as a **separate** checkout. Never point
-`CACTUS_DIR` at it by default: a fork's `main` drifts, and having a feature
-branch checked out at deploy time would ship unreviewed code without warning.
-
-To deploy a patch deliberately, override the variable for that one run:
-
-```sh
-CACTUS_DIR=~/src/meacer-cactus ./docker-deploy.sh
-```
-
-`BORINGSSL_DIR` is only needed for the TAI demo site; `docker-deploy.sh` offers
-to clone it for you.
-
-This deployment patches three files from the cactus repo's `docker/` directory
-(`skylight.yaml`, `init-sunlight.sh`, `sunlight.yaml.tmpl`). The patched copies
-live in `data/` and are copied over the originals on the VM at deploy time, so
-a clean checkout of `main` is all that is required — see the header comment in
-each file for the delta.
-
-This repo requires Go 1.27+. Until a release is available, use `gotip`:
+**1. Install Go 1.27+.** No release exists yet, so use `gotip`:
 
 ```sh
 go install golang.org/dl/gotip@latest
@@ -79,142 +15,110 @@ export PATH="$PATH:$HOME/go/bin"
 gotip download
 ```
 
-Build the `cactus:local` and `sunlight:local` Docker images. `docker-deploy.sh`
-pushes these to the VM but does not build them, so this must be done at least
-once, and again whenever the cactus source changes:
+**2. Clone cactus and build the images.** `docker-deploy.sh` ships these to the
+VM but does not build them:
 
 ```sh
+git clone https://github.com/mcpherrinm/cactus.git ~/src/mcpherrinm-cactus
 make -C ~/src/mcpherrinm-cactus docker-build
 ```
 
-Generate CA + witness keys (only needed when creating new keys, e.g., after `./cactus-reset.sh`):
+**3. Set your deploy target**, then edit `VM`, `ZONE`, and `PROJECT`:
 
 ```sh
-./cactus-reset.sh
+cp config.example.sh config.sh
 ```
 
-## Fresh VM
+**4. Create the VM** (skip if it already exists):
 
 ```sh
-# Create the VM (GCP) — substitute your own project/vm/zone if not using config.sh's defaults:
 gcloud compute instances create cactus-testing \
     --zone=us-central1-a --project=meacer \
     --machine-type=e2-standard-2 \
     --image-family=cos-stable --image-project=cos-cloud
-
-# First-time deploy (creates GCP firewall rules and deploys the Docker stack):
-make setup
-# or directly:
-./docker-deploy.sh --setup-firewall
 ```
 
-## Subsequent deploys (local)
+**5. Deploy:**
 
 ```sh
-make deploy
-# or directly:
-./docker-deploy.sh
+make setup     # first time only — also creates the GCP firewall rules
+make deploy    # every time after
 ```
 
-## Trust Anchor Negotiation (TAI) demo site
+You need no key material locally: the cosigner seeds are pulled from GCP Secret
+Manager at deploy time and installed into the VM's Docker volumes.
 
-To enable the TLS Trust Anchor Negotiation (`draft-ietf-tls-trust-anchor-ids`) demo site (`tai.demo.mtcs.dev`, served via `bssl server` with Nginx SNI routing on port 443 and standalone MTC fallback):
+> [!IMPORTANT]
+> Nothing checks that your cactus checkout is current. After an upstream change,
+> re-run step 2 (`git -C ~/src/mcpherrinm-cactus pull --ff-only` and
+> `make ... docker-build`) or you will silently deploy an old cactus.
+
+## Configuration
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `VM` / `ZONE` / `PROJECT` | from `config.sh` | deploy target |
+| `CACTUS_DIR` | `~/src/mcpherrinm-cactus` | cactus checkout to build from |
+| `BORINGSSL_DIR` | `~/src/meacer-boringssl` (`tai-server` branch) | only for the TAI demo site; offered as a clone if missing |
+| `ENABLE_TAI` | `true` | serve `tai.demo.mtcs.dev` |
+
+Override per run instead of editing `config.sh`:
 
 ```sh
-./docker-deploy.sh --enable-tai
-# or via environment variable / config.sh:
-ENABLE_TAI=true ./docker-deploy.sh
+make deploy CACTUS_PROJECT=myproject CACTUS_VM=my-vm CACTUS_ZONE=us-east1-b
+./docker-deploy.sh --vm=my-vm --zone=us-east1-b --project=myproject
+./docker-deploy.sh --enable-tai            # or --disable-tai
+./docker-deploy.sh --setup-firewall        # what `make setup` adds
+CACTUS_DIR=~/src/my-cactus-fork ./docker-deploy.sh   # deploy an unlanded patch
 ```
 
-To disable it on a subsequent deploy:
-
-```sh
-./docker-deploy.sh --disable-tai
-```
+`make setup` opens tcp:22,80,443 plus the stack's ports — 14000 (ACME), 14080
+(monitoring/tiles), 14090 (metrics), 8080 (sunlight), 8081 (skylight) — scoped
+to the VM's service account.
 
 ## Request an MTC certificate (on the VM)
 
-`docker-deploy.sh` compiles `data/requestmtc.go` and installs the binary to `/var/lib/toolbox/bin/requestmtc` on the VM (and configures `request-mtc-cron.timer` to automatically renew demo certificates every Monday and Thursday).
-
-To manually request a certificate for a domain from the local ACME server and serve it via Nginx over HTTPS, SSH into the VM and run:
+`requestmtc` requests a certificate from the local ACME server, writes an Nginx
+vhost to `~/docker/sites-enabled/<domain>.conf`, and reloads `cactus-nginx-1`.
+Certificates land in `~/docker/certs/certificates`. A timer renews the demo
+certificates every Monday and Thursday.
 
 ```sh
 gcloud compute ssh cactus-testing --zone=us-central1-a --project=meacer
-
 cd ~/docker
+
 /var/lib/toolbox/bin/requestmtc -domain example.test
 /var/lib/toolbox/bin/requestmtc -domain example.test -email me@example.com
 ```
 
-It writes each domain's Nginx vhost config to `~/docker/sites-enabled/<domain>.conf` and reloads the `cactus-nginx-1` container. Certificates land in `~/docker/certs/certificates`.
-
-If `-relative` is passed, it converts the standalone cert into its landmark-relative form (draft §6.3.3) with `cactus-cli`, writing `certs/certificates/<domain>-landmark-relative.pem`, and uses that landmark-relative cert in the Nginx config. Optionally pass `-tai` to attach the TAI `CERTIFICATE PROPERTIES` block (`11129.11.99.1.1.1.<landmarkNumber>`):
+`-relative` converts the cert to its landmark-relative form (draft §6.3.3) and
+uses that in the vhost; add `-tai` to attach the TAI `CERTIFICATE PROPERTIES`
+block (`11129.11.99.1.1.1.<landmarkNumber>`):
 
 ```sh
 /var/lib/toolbox/bin/requestmtc -domain example.test -relative
 /var/lib/toolbox/bin/requestmtc -domain example.test -relative -tai
 ```
 
-To do the landmark-relative conversion by hand:
+## Inspect the log (on the VM)
 
 ```sh
-/var/lib/toolbox/bin/cactus-cli cert landmark-relative ./certs/certificates/example.test.crt http://localhost:14080/1 > lr.pem
-```
-
-## Inspect the log with cactus-cli (on the VM)
-
-`docker-deploy.sh` installs `cactus-cli` to `/var/lib/toolbox/bin/cactus-cli`. From the VM (or anywhere that can reach the log):
-
-```sh
-/var/lib/toolbox/bin/cactus-cli tree show   http://localhost:14080     # checkpoint: size + root
-/var/lib/toolbox/bin/cactus-cli tree verify http://localhost:14080     # replay every tile, check the root
-/var/lib/toolbox/bin/cactus-cli entry       http://localhost:14080 0   # decode a log entry
-/var/lib/toolbox/bin/cactus-cli cert text   ./certs/certificates/example.test.crt   # human-readable view of a cert
+/var/lib/toolbox/bin/cactus-cli tree show   http://localhost:14080   # checkpoint: size + root
+/var/lib/toolbox/bin/cactus-cli tree verify http://localhost:14080   # replay every tile
+/var/lib/toolbox/bin/cactus-cli entry       http://localhost:14080 0 # decode an entry
+/var/lib/toolbox/bin/cactus-cli cert text   ./certs/certificates/example.test.crt
 /var/lib/toolbox/bin/cactus-cli cert verify ./certs/certificates/example.test.crt http://localhost:14080
 
-# Convert a standalone cert to its landmark-relative form (prints PEM on stdout).
-# Note the log number suffix (/1) — this endpoint is per-log, unlike those above:
+# Note the /1 suffix — this endpoint is per-log, unlike those above:
 /var/lib/toolbox/bin/cactus-cli cert landmark-relative ./certs/certificates/example.test.crt http://localhost:14080/1
 ```
 
-## Open firewall ports (GCP, one-time)
+## Destructive operations
 
-`./docker-deploy.sh --setup-firewall` (or `make setup`) creates these rules automatically,
-scoped to the VM's service account. To create or update them manually:
-
-```sh
-VM_SA=$(gcloud compute instances describe cactus-testing \
-    --zone=us-central1-a --project=meacer \
-    --format="get(serviceAccounts[0].email)")
-
-gcloud compute firewall-rules create allow-http-https \
-    --project=meacer \
-    --direction=INGRESS \
-    --priority=1000 \
-    --network=default \
-    --action=ALLOW \
-    --rules=tcp:22,tcp:80,tcp:443 \
-    --source-ranges=0.0.0.0/0 \
-    --target-service-accounts="$VM_SA"
-
-# Ports published by the compose stack: 14000 (ACME), 14080 (monitoring /
-# tiles), 14090 (metrics), 8080 (sunlight), 8081 (skylight):
-gcloud compute firewall-rules create allow-cactus \
-    --project=meacer \
-    --direction=INGRESS \
-    --priority=1000 \
-    --network=default \
-    --action=ALLOW \
-    --rules=tcp:8080,tcp:8081,tcp:14000,tcp:14080,tcp:14090 \
-    --source-ranges=0.0.0.0/0 \
-    --target-service-accounts="$VM_SA"
-```
-
-## Wipe the log state (on the VM)
-
-Destructive and irreversible — this deletes the log, tiles, and checkpoints,
-along with the cosigner seeds stored in the volumes. The seeds are re-populated
-from GCP Secret Manager on the next deploy, but everything else is gone.
+**Wipe the log state** (on the VM). Deletes the log, tiles, checkpoints, and the
+cosigner seeds in the volumes. Seeds are restored from Secret Manager on the
+next deploy; everything else is gone. Run `./docker-deploy.sh` afterwards to
+recreate the volumes.
 
 ```sh
 cd ~/docker
@@ -222,15 +126,15 @@ cd ~/docker
 docker volume rm cactus_cactus-data cactus_sunlight-data
 ```
 
-Then run `./docker-deploy.sh` locally to recreate the volumes and restart the stack.
-
-## Other commands (local)
+**Start a new CA identity** (local). Generates fresh CA and witness cosigner
+keys into `keys/`, replacing the existing ones. You do not need this to deploy —
+only to stand up a CA with a new identity.
 
 ```sh
-make clean    # remove locally built binaries and generated pages (out/)
+./cactus-reset.sh
 ```
 
-## Delete the VM (GCP)
+**Delete the VM:**
 
 ```sh
 gcloud compute instances delete cactus-testing --zone=us-central1-a --project=meacer
@@ -238,11 +142,13 @@ gcloud compute instances delete cactus-testing --zone=us-central1-a --project=me
 
 ## Files
 
-- `docker-deploy.sh` — builds tools and deploys the containerized stack to the GCP VM
-- `config.example.sh` — template for `config.sh`
-- `config.sh` — default VM/zone/project and TAI configuration for `docker-deploy.sh` (gitignored, create it from the template)
-- `cactus-reset.sh` — generates fresh CA and witness cosigner keys locally
-- `download-keys.sh` — downloads cosigner seeds from GCP Secret Manager
-- `print-mirror-vkey.sh` — prints the live Sunlight mirror SPKI public key from the VM
-- `keys/` — cosigner seeds (secret, gitignored) and public keys
-- `data/` — Docker/Nginx configs (`cactus-config-docker.json`, `compose.override.yaml`, `nginx.conf`, `skylight.yaml`), helper scripts, and Go tools (`requestmtc.go`, `generatemirrorindex.go`)
+- `docker-deploy.sh` — builds the tools and deploys the stack
+- `config.example.sh` → copy to `config.sh` (gitignored) for your deploy target
+- `cactus-reset.sh` — generates a fresh CA identity
+- `download-keys.sh` — downloads cosigner seeds from Secret Manager
+- `print-mirror-vkey.sh` — prints the live Sunlight mirror SPKI public key
+- `keys/` — cosigner seeds and public keys (gitignored)
+- `data/` — configs, helper scripts, and Go tools copied to the VM. Three files
+  (`skylight.yaml`, `init-sunlight.sh`, `sunlight.yaml.tmpl`) override the cactus
+  repo's `docker/` copies at deploy time; each has a header explaining the delta.
+- `make clean` removes built binaries and generated pages (`out/`)
