@@ -1,2 +1,5 @@
-keys/
-out/
+/keys/
+/out/
+
+# Local deploy target. Copy config.example.sh to config.sh and fill it in.
+/config.sh

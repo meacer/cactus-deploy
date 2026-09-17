@@ -10,6 +10,11 @@ set -euo pipefail
 
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 CACTUS_DIR="${CACTUS_DIR:-$HOME/src/mcpherrinm-cactus}"
+if [[ ! -f "$DEPLOY_DIR/config.sh" ]]; then
+  echo "Error: config.sh not found. Create it from the template:" >&2
+  echo "  cp $DEPLOY_DIR/config.example.sh $DEPLOY_DIR/config.sh" >&2
+  exit 1
+fi
 source "$DEPLOY_DIR/config.sh"
 
 SETUP_FIREWALL="false"

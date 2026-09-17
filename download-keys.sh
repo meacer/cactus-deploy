@@ -1,8 +1,15 @@
+#!/usr/bin/env bash
+# Downloads the CA and mirror cosigner seeds from GCP Secret Manager.
 set -euo pipefail
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
-source "$DEPLOY_DIR/config.sh" 
+if [[ ! -f "$DEPLOY_DIR/config.sh" ]]; then
+  echo "Error: config.sh not found. Create it from the template:" >&2
+  echo "  cp $DEPLOY_DIR/config.example.sh $DEPLOY_DIR/config.sh" >&2
+  exit 1
+fi
+source "$DEPLOY_DIR/config.sh"
 
-KEYS_DIR="~/src/cactus-keys-from-gcp"
+KEYS_DIR="$HOME/src/cactus-keys-from-gcp"
 mkdir -p "$KEYS_DIR"
 
 echo "==> Downloading keys from Secret Manager to $KEYS_DIR..."

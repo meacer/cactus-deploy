@@ -10,9 +10,15 @@ the cactus repo (see Prerequisites).
 
 ## Prerequisites (local, one-time)
 
-VM name, zone, and GCP project default to the values in `config.sh` (sourced
-by `docker-deploy.sh`). Override any of them via `make` command-line variables
-or `./docker-deploy.sh` flags:
+VM name, zone, and GCP project come from `config.sh`, which is gitignored so
+each deployment can point somewhere different. Create it from the template and
+fill in your values:
+
+```sh
+cp config.example.sh config.sh
+```
+
+Override any of them per-invocation without editing the file:
 
 ```sh
 make deploy                                                          # uses config.sh defaults
@@ -233,7 +239,8 @@ gcloud compute instances delete cactus-testing --zone=us-central1-a --project=me
 ## Files
 
 - `docker-deploy.sh` — builds tools and deploys the containerized stack to the GCP VM
-- `config.sh` — default VM/zone/project and TAI configuration for `docker-deploy.sh`
+- `config.example.sh` — template for `config.sh`
+- `config.sh` — default VM/zone/project and TAI configuration for `docker-deploy.sh` (gitignored, create it from the template)
 - `cactus-reset.sh` — generates fresh CA and witness cosigner keys locally
 - `download-keys.sh` — downloads cosigner seeds from GCP Secret Manager
 - `print-mirror-vkey.sh` — prints the live Sunlight mirror SPKI public key from the VM
