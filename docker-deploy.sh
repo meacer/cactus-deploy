@@ -157,7 +157,7 @@ fi
 gcloud compute scp --recurse "$OUT_DIR/www" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/cactus-config-docker.json" "$VM":~/docker/cactus-config.json --zone="$ZONE" --project="$PROJECT"
 gcloud compute scp "$DEPLOY_DIR/data/request-certs.sh" "$DEPLOY_DIR/data/requestmtc.go" "$DEPLOY_DIR/data/request-demo-domain-certs.sh" "$DEPLOY_DIR/data/generate-demo-html.sh" "$OUT_DIR/cactus-cli" "$OUT_DIR/requestmtc" "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
-gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-demo-domain-certs.sh ~/docker/generate-demo-html.sh ~/docker/run-bssl-tai.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo install -m 0755 ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && if [ -x ~/docker/bssl ]; then sudo install -m 0755 ~/docker/bssl /var/lib/toolbox/bin/; fi"
+gcloud compute ssh "$VM" --zone="$ZONE" --project="$PROJECT" -- "chmod +x ~/docker/request-certs.sh ~/docker/request-demo-domain-certs.sh ~/docker/generate-demo-html.sh ~/docker/run-bssl-tai.sh && sudo mkdir -p /var/lib/toolbox/bin && sudo install -m 0755 ~/docker/cactus-cli ~/docker/requestmtc /var/lib/toolbox/bin/ && if [ -f ~/docker/bssl ]; then sudo install -m 0755 ~/docker/bssl /var/lib/toolbox/bin/bssl.new && sudo mv /var/lib/toolbox/bin/bssl.new /var/lib/toolbox/bin/bssl && sudo cmp -s ~/docker/bssl /var/lib/toolbox/bin/bssl; fi"
 
 LOCAL_TMP_KEYS="$(mktemp -d)"
 trap 'rm -rf "$LOCAL_TMP_KEYS"' EXIT
