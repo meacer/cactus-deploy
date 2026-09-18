@@ -386,10 +386,12 @@ for domain in standalone.demo.mtcs.dev relative.demo.mtcs.dev landmark-relative.
   if [ "\$domain" = "tai.demo.mtcs.dev" ] && [ "${ENABLE_TAI}" != "true" ]; then
     continue
   fi
+  # \${domain}.crt is the cert requestmtc keeps in sync with \${domain}.key: the
+  # landmark-relative form once a covering landmark exists, the standalone form
+  # until then. A \${domain}-landmark-relative.pem left over from an earlier
+  # issuance may belong to a superseded key, so it is not used here.
   cert_file=""
-  if [ -f "./certs/certificates/\${domain}-landmark-relative.pem" ]; then
-    cert_file="\${domain}-landmark-relative.pem"
-  elif [ -f "./certs/certificates/\${domain}.crt" ]; then
+  if [ -f "./certs/certificates/\${domain}.crt" ]; then
     cert_file="\${domain}.crt"
   fi
   if [ -n "\$cert_file" ] && [ -f "./certs/certificates/\${domain}.key" ]; then

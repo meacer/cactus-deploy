@@ -245,13 +245,26 @@ func installCertsAndReload(staged []stagedCert, liveCertDir, cli string, useRela
 			standaloneFile := filepath.Join(liveCertDir, domain+"-standalone.crt")
 			_ = writeFileAtomic(standaloneFile, certBytes, 0644)
 
+			// No landmark covers the freshly issued entry yet, so there is no
+			// landmark-relative cert for this key. Remove any leftover one from
+			// the previous issuance: it belongs to the old keypair, and serving
+			// it alongside the key installed above makes BoringSSL discard the
+			// key, which takes the bssl TAI server down until the conversion in
+			// step 3 completes.
 			lrFile := filepath.Join(liveCertDir, domain+"-landmark-relative.pem")
-			if _, err := os.Stat(lrFile); os.IsNotExist(err) {
-				_ = writeFileAtomic(lrFile, certBytes, 0644)
+			if err := os.Remove(lrFile); err != nil && !os.IsNotExist(err) {
+				log.Printf("==> warning: failed to remove stale landmark-relative cert %s: %v", lrFile, err)
 			}
+
+			// A standalone cert is accepted under the CA's own ID (§8.1), not
+			// under a landmark ID, so record that as the trust anchor ID to
+			// advertise while no landmark-relative cert exists.
 			taidFile := filepath.Join(liveCertDir, domain+".taid")
-			if _, err := os.Stat(taidFile); os.IsNotExist(err) {
-				_ = writeFileAtomic(taidFile, []byte("11129.11.99.1.1.1.999999\n"), 0644)
+			if caID, err := extractCAID(certBytes); err == nil {
+				_ = writeFileAtomic(taidFile, []byte(caID+"\n"), 0644)
+				logStep("Wrote Trust Anchor ID %s (CA ID) to %s", caID, taidFile)
+			} else {
+				log.Printf("==> warning: could not determine the CA ID for %s: %v", domain, err)
 			}
 
 			certFile := filepath.Join(liveCertDir, domain+".crt")
