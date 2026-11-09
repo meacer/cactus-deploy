@@ -276,10 +276,11 @@ SERVICE
 
 sudo systemctl daemon-reload
 sudo systemctl enable request-certs.service
-if ! systemctl is-active --quiet request-certs.service; then
-  echo "==> Starting request-certs.service..."
-  sudo systemctl start request-certs.service
-fi
+# Always restart rather than start-if-inactive: request-certs.sh was just
+# re-copied above, and bash keeps executing the loop it already parsed, so a
+# running service would never pick up the new script.
+echo "==> Restarting request-certs.service..."
+sudo systemctl restart request-certs.service
 
 # Configure systemd service for bssl TAI server
 sudo tee /etc/systemd/system/bssl-tai.service >/dev/null << SERVICE
