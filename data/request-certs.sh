@@ -50,9 +50,24 @@ run_lego() {
     fi
 }
 
+# Deletes lego's output for a load-test domain once it has been issued. The
+# issued cert is already in the CA's log, and keeping one copy of every cert
+# fills the disk with ~30K files a day. Only *.example.test is deleted, so the
+# *.demo.mtcs.dev certs that nginx serves, also in $CERTS_DIR/certificates,
+# are never touched.
+delete_issued_cert() {
+    local domain="$1"
+    case "$domain" in
+        *.example.test) ;;
+        *) echo "Refusing to delete certs for non-test domain $domain" >&2; return 1 ;;
+    esac
+    rm -f "$CERTS_DIR/certificates/${domain}".{crt,key,issuer.crt,json,pem}
+}
+
 while true; do
     echo "==> Requesting cert for subdomain-${N}.example.test..."
     run_lego "subdomain-${N}.example.test" || echo "Warning: cert request for subdomain-${N}.example.test failed"
+    delete_issued_cert "subdomain-${N}.example.test" || true
 
     N=$((N + 1))
     echo "$N" > "$COUNTER_FILE"
