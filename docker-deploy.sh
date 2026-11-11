@@ -16,6 +16,10 @@ if [[ ! -f "$DEPLOY_DIR/config.sh" ]]; then
   exit 1
 fi
 source "$DEPLOY_DIR/config.sh"
+# Defaults for config.sh files that predate these settings; see
+# config.example.sh.
+CA_SEED_SECRET="${CA_SEED_SECRET:-ca1-draft07-cosigner-seed}"
+MIRROR_SEED_SECRET="${MIRROR_SEED_SECRET:-mirror1-draft07-cosigner-seed}"
 
 SETUP_FIREWALL="false"
 
@@ -85,10 +89,7 @@ if [[ "$SETUP_FIREWALL" == "true" ]]; then
     --target-service-accounts="$VM_SA" || true
 fi
 
-GO="${GO:-$HOME/go/bin/gotip}"
-if ! command -v "$GO" >/dev/null 2>&1 && command -v go >/dev/null 2>&1; then
-  GO=go
-fi
+GO="${GO:-go}"
 
 OUT_DIR="$DEPLOY_DIR/out"
 mkdir -p "$OUT_DIR"
@@ -140,15 +141,14 @@ docker save sunlight:local | gzip | gcloud compute ssh "$VM" --zone="$ZONE" --pr
 cd "$CACTUS_DIR"
 gcloud compute scp --recurse ./docker "$VM":~/ --zone="$ZONE" --project="$PROJECT"
 
-# Override with custom configs from cactus-deploy. init-sunlight.sh and
-# sunlight.yaml.tmpl are patched copies of the cactus repo's versions; see the
+# Override with custom configs from cactus-deploy. skylight.yaml and
+# sunlight.yaml are patched copies of the cactus repo's versions; see the
 # header comment in each for the delta.
 gcloud compute scp \
   "$DEPLOY_DIR/data/nginx.conf" \
   "$DEPLOY_DIR/data/compose.override.yaml" \
   "$DEPLOY_DIR/data/skylight.yaml" \
-  "$DEPLOY_DIR/data/init-sunlight.sh" \
-  "$DEPLOY_DIR/data/sunlight.yaml.tmpl" \
+  "$DEPLOY_DIR/data/sunlight.yaml" \
   "$DEPLOY_DIR/data/run-bssl-tai.sh" \
   "$VM":~/docker/ --zone="$ZONE" --project="$PROJECT"
 if [ -x "$OUT_DIR/bssl" ]; then
@@ -166,18 +166,18 @@ echo "==> Fetching secrets from GCP Secret Manager locally..."
 HAS_CA_SEED=false
 HAS_MIRROR_SEED=false
 
-if gcloud secrets versions access latest --secret=ca1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/ca-cosigner.seed" 2>/dev/null; then
-  echo "  Downloaded ca1-cosigner-seed"
+if gcloud secrets versions access latest --secret="$CA_SEED_SECRET" --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/ca-cosigner.seed" 2>/dev/null; then
+  echo "  Downloaded $CA_SEED_SECRET"
   HAS_CA_SEED=true
 else
-  echo "  Warning: could not fetch ca1-cosigner-seed from Secret Manager"
+  echo "  Warning: could not fetch $CA_SEED_SECRET from Secret Manager"
 fi
 
-if gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/mirror-cosigner.seed" 2>/dev/null; then
-  echo "  Downloaded mirror1-cosigner-seed"
+if gcloud secrets versions access latest --secret="$MIRROR_SEED_SECRET" --project="$PROJECT" --out-file="$LOCAL_TMP_KEYS/mirror-cosigner.seed" 2>/dev/null; then
+  echo "  Downloaded $MIRROR_SEED_SECRET"
   HAS_MIRROR_SEED=true
 else
-  echo "  Warning: could not fetch mirror1-cosigner-seed from Secret Manager"
+  echo "  Warning: could not fetch $MIRROR_SEED_SECRET from Secret Manager"
 fi
 
 if [ "$HAS_CA_SEED" = true ] || [ "$HAS_MIRROR_SEED" = true ]; then
@@ -198,9 +198,8 @@ if [ -f /tmp/cactus-keys/ca-cosigner.seed ]; then
     alpine sh -c "mkdir -p /var/lib/cactus/keys && cp /keys/ca-cosigner.seed /var/lib/cactus/keys/ca-cosigner.seed && chmod 600 /var/lib/cactus/keys/ca-cosigner.seed"
 fi
 
-# The in-volume name is fixed by upstream's sunlight.yaml.tmpl and
-# init-sunlight.sh, so it stays witness-seed.bin regardless of what we call the
-# seed locally.
+# The in-volume name is fixed by upstream's sunlight.yaml and init-sunlight.sh,
+# so it stays witness-seed.bin regardless of what we call the seed locally.
 if [ -f /tmp/cactus-keys/mirror-cosigner.seed ]; then
   echo "==> Populating mirror-cosigner.seed into cactus_sunlight-data volume as witness-seed.bin..."
   docker run --rm -v cactus_sunlight-data:/var/lib/sunlight -v /tmp/cactus-keys:/keys:ro \

@@ -7,12 +7,11 @@ Everything runs on your **local machine** unless a section says otherwise.
 
 ## Quick start
 
-**1. Install Go 1.27+.** No release exists yet, so use `gotip`:
+**1. Install Go 1.27+.** The deploy uses `go` from your `PATH`; set `GO=` to use
+another toolchain.
 
 ```sh
-go install golang.org/dl/gotip@latest
-export PATH="$PATH:$HOME/go/bin"
-gotip download
+go version   # go1.27 or later
 ```
 
 **2. Clone cactus and build the images.** `docker-deploy.sh` ships these to the
@@ -51,22 +50,25 @@ with `gcloud secrets list --project=meacer`. Nothing in this repo uploads them,
 so a brand-new deployment has to do it once, by hand:
 
 ```sh
-./cactus-reset.sh   # writes seeds and public keys to keys/
+./cactus-reset.sh   # writes seeds and public keys to keys/; refuses to overwrite existing ones
 
-gcloud secrets create ca1-cosigner-seed     --project=meacer --data-file=keys/ca-cosigner.seed
-gcloud secrets create mirror1-cosigner-seed --project=meacer --data-file=keys/mirror-cosigner.seed
-gcloud secrets create ca1-public-key        --project=meacer --data-file=keys/ca-cosigner.pem
-gcloud secrets create mirror1-public-key    --project=meacer --data-file=keys/mirror-cosigner.pem
+gcloud secrets create ca1-draft07-cosigner-seed     --project=meacer --data-file=keys/ca-cosigner.seed
+gcloud secrets create mirror1-draft07-cosigner-seed --project=meacer --data-file=keys/mirror-cosigner.seed
+gcloud secrets create ca1-draft07-public-key        --project=meacer --data-file=keys/ca-cosigner.pem
+gcloud secrets create mirror1-draft07-public-key    --project=meacer --data-file=keys/mirror-cosigner.pem
 ```
 
-Only the two `*-cosigner-seed` secrets are read by `docker-deploy.sh`; the
-public keys are stored for reference.
+Only the two `*-cosigner-seed` secrets are read by `docker-deploy.sh` (names set
+by `CA_SEED_SECRET` / `MIRROR_SEED_SECRET`, see `config.example.sh`); the public
+keys are stored for reference. The draft-05 CA's keys are kept, unchanged, in
+`ca1-cosigner-seed`, `mirror1-cosigner-seed`, `ca1-public-key` and
+`mirror1-public-key`.
 
 > [!WARNING]
-> Re-running `./cactus-reset.sh` mints a **new CA identity**. The existing log,
-> certificates, and published keys will no longer verify against it. To rotate
-> deliberately, add a new version with `gcloud secrets versions add` rather than
-> `create`.
+> Running `./cactus-reset.sh` mints a **new CA identity**. The existing log,
+> certificates, and published keys will no longer verify against it. Store a
+> new identity under new secret names, as above, rather than overwriting the
+> old secrets, so the old keys are never lost.
 
 **6. Deploy:**
 
@@ -122,9 +124,10 @@ cd ~/docker
 /var/lib/toolbox/bin/requestmtc -domain example.test -email me@example.com
 ```
 
-`-relative` converts the cert to its landmark-relative form (draft §6.3.3) and
-uses that in the vhost; add `-tai` to attach the TAI `CERTIFICATE PROPERTIES`
-block (`11129.11.99.1.1.1.<landmarkNumber>`):
+`-relative` converts the cert to its landmark-relative form (draft-07 §6.4.4)
+and uses that in the vhost; add `-tai` to attach the TAI `CERTIFICATE
+PROPERTIES` block (trust anchor ID `11129.11.99.3.1.1.<landmarkNumber>`, plus
+the landmark's trust anchor group pattern and trust_anchor_negotiation):
 
 ```sh
 /var/lib/toolbox/bin/requestmtc -domain example.test -relative
@@ -157,9 +160,10 @@ cd ~/docker
 docker volume rm cactus_cactus-data cactus_sunlight-data
 ```
 
-**Start a new CA identity** — see step 5. Note that `./cactus-reset.sh` only
-rewrites `keys/` locally; the deploy keeps using Secret Manager until you push
-the new seeds there with `gcloud secrets versions add`.
+**Start a new CA identity** — see step 5. Move the current `keys/` aside first
+(`./cactus-reset.sh` refuses to overwrite it). The script only writes `keys/`
+locally; the deploy keeps using whatever `CA_SEED_SECRET` / `MIRROR_SEED_SECRET`
+name until you create the new secrets and point those settings at them.
 
 **Delete the VM:**
 
@@ -175,7 +179,7 @@ gcloud compute instances delete cactus-testing --zone=us-central1-a --project=me
 - `download-keys.sh` — downloads cosigner seeds from Secret Manager
 - `print-mirror-vkey.sh` — prints the live Sunlight mirror SPKI public key
 - `keys/` — cosigner seeds and public keys (gitignored)
-- `data/` — configs, helper scripts, and Go tools copied to the VM. Three files
-  (`skylight.yaml`, `init-sunlight.sh`, `sunlight.yaml.tmpl`) override the cactus
-  repo's `docker/` copies at deploy time; each has a header explaining the delta.
+- `data/` — configs, helper scripts, and Go tools copied to the VM. Two files
+  (`skylight.yaml`, `sunlight.yaml`) override the cactus repo's `docker/`
+  copies at deploy time; each has a header explaining the delta.
 - `make clean` removes built binaries and generated pages (`out/`)

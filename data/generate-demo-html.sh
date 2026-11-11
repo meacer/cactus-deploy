@@ -42,18 +42,21 @@ find_covering_landmark() {
         return
     fi
 
+    # draft-07 §6.4.3 landmark list: "<latest landmark number>", then one
+    # "<tree size> <expiry unix time>" line per landmark from the latest down,
+    # ending with the newest expired one (whose size is the lower bound of the
+    # oldest active landmark's entry range).
     python3 -c '
 import sys
 
 lines = [l.strip() for l in sys.stdin.read().splitlines() if l.strip()]
-if not lines:
+if len(lines) < 2:
     sys.exit(0)
 hdr = lines[0].split()
-if len(hdr) != 2:
+if len(hdr) != 1:
     sys.exit(0)
 last = int(hdr[0])
-num_active = int(hdr[1])
-sizes = [int(x) for x in lines[1:num_active+2]]
+sizes = [int(l.split()[0]) for l in lines[1:]]
 
 target = int(sys.argv[1])
 for i in range(len(sizes) - 2, -1, -1):
@@ -61,7 +64,9 @@ for i in range(len(sizes) - 2, -1, -1):
     lm_size = sizes[i]
     prev_size = sizes[i + 1]
     if lm_size > target:
-        print(f"{lm_num}|{prev_size}|{lm_size}")
+        # Below prev_size, only the expired landmark covers the entry.
+        if prev_size <= target:
+            print(f"{lm_num}|{prev_size}|{lm_size}")
         sys.exit(0)
 ' "$index" <<< "$LANDMARKS_RAW"
 }
@@ -117,7 +122,10 @@ for domain in "${DOMAINS[@]}"; do
     badge_class="badge-standalone"
     badge_text="Standalone MTC"
     summary_desc="Verified via ${sigs} ML-DSA-44 cosigner signatures over checkpoint subtree <code>${subtree}</code>"
-    if [[ "$form" == *"landmark-relative"* ]]; then
+    # Match the prefix only: since draft-07, cactus-cli describes a standalone
+    # cert as "standalone, unless its subtree is a landmark subtree
+    # (landmark-relative certificates may also carry cosignatures)".
+    if [[ "$form" == "landmark-relative"* ]]; then
         is_relative=true
         badge_class="badge-relative"
         badge_text="Landmark-Relative MTC"

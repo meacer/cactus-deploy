@@ -4,7 +4,7 @@
 # Sunlight derives both its witness and mirror keys from the mirror seed.
 set -euo pipefail
 
-GO="${GO:-gotip}"
+GO="${GO:-go}"
 DEPLOY_DIR="$(cd "$(dirname "$0")" && pwd)"
 KEYS_DIR="$DEPLOY_DIR/keys"
 CACTUS_SRC="${CACTUS_SRC:-}"
@@ -30,6 +30,18 @@ else
 fi
 
 mkdir -p "$KEYS_DIR"
+
+# cactus-keygen -f overwrites, so refuse to clobber an existing identity: its
+# seeds may be the only local copy. Move them aside first (e.g. to
+# keys-<name>/) or set FORCE=1.
+if [[ "${FORCE:-0}" != 1 ]]; then
+    for f in ca-cosigner.seed mirror-cosigner.seed; do
+        if [[ -e "$KEYS_DIR/$f" ]]; then
+            echo "Error: $KEYS_DIR/$f exists; move keys/ aside or set FORCE=1 to overwrite." >&2
+            exit 1
+        fi
+    done
+fi
 
 cd "$CACTUS_SRC"
 

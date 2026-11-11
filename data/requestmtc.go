@@ -16,7 +16,6 @@ package main
 
 import (
 	"bytes"
-	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
 	"flag"
@@ -453,7 +452,14 @@ func sudoRun(name string, args ...string) error {
 	return cmd.Run()
 }
 
-var oidTrustAnchorID = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 44363, 47, 1}
+// oidTrustAnchorID is id-rdna-trustAnchorID {id-pkix rdna(25) 3}
+// (draft-ietf-plants-merkle-tree-certs-07 §5.1, §13.1.4). An MTC's issuer
+// Name holds the CA ID as this attribute, with a RELATIVE-OID value.
+var oidTrustAnchorID = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 25, 3}
+
+// asn1TagRelativeOID is the ASN.1 universal tag for RELATIVE-OID, which
+// encoding/asn1 does not model.
+const asn1TagRelativeOID = 13
 
 func prepareTAIInput(pemFile, certDir, domain string) (string, error) {
 	raw, err := os.ReadFile(pemFile)
@@ -477,21 +483,108 @@ func prepareTAIInput(pemFile, certDir, domain string) (string, error) {
 	return outFile, nil
 }
 
+type attributeTypeAndValue struct {
+	Type  asn1.ObjectIdentifier
+	Value asn1.RawValue
+}
+
+// rdnSET is a RelativeDistinguishedName. encoding/asn1 decodes a slice
+// type whose name ends in "SET" as a SET OF.
+type rdnSET []attributeTypeAndValue
+
+// extractCAID returns the CA ID from the issuer Name of the first
+// certificate in certPEM, in dotted form. It walks the DER by hand because
+// crypto/x509 rejects the RELATIVE-OID attribute value MTCs use there.
 func extractCAID(certPEM []byte) (string, error) {
-	block, _ := pem.Decode(certPEM)
-	if block == nil {
-		return "", fmt.Errorf("no pem block found")
+	var block *pem.Block
+	for rest := certPEM; ; {
+		block, rest = pem.Decode(rest)
+		if block == nil || block.Type == "CERTIFICATE" {
+			break
+		}
 	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	if block == nil {
+		return "", fmt.Errorf("no CERTIFICATE pem block found")
+	}
+	var certificate, tbs asn1.RawValue
+	if _, err := asn1.Unmarshal(block.Bytes, &certificate); err != nil {
+		return "", fmt.Errorf("parse Certificate: %w", err)
+	}
+	if _, err := asn1.Unmarshal(certificate.Bytes, &tbs); err != nil {
+		return "", fmt.Errorf("parse TBSCertificate: %w", err)
+	}
+	rest := tbs.Bytes
+	next := func(what string) (asn1.RawValue, error) {
+		var v asn1.RawValue
+		r, err := asn1.Unmarshal(rest, &v)
+		if err != nil {
+			return v, fmt.Errorf("parse TBSCertificate %s: %w", what, err)
+		}
+		rest = r
+		return v, nil
+	}
+	// version [0] EXPLICIT is optional; serialNumber follows it.
+	v, err := next("version or serialNumber")
 	if err != nil {
 		return "", err
 	}
-	for _, name := range cert.Issuer.Names {
-		if name.Type.Equal(oidTrustAnchorID) {
-			return fmt.Sprintf("%v", name.Value), nil
+	if v.Class == asn1.ClassContextSpecific && v.Tag == 0 {
+		if _, err := next("serialNumber"); err != nil {
+			return "", err
+		}
+	}
+	if _, err := next("signature"); err != nil {
+		return "", err
+	}
+	issuer, err := next("issuer")
+	if err != nil {
+		return "", err
+	}
+	var rdns []rdnSET
+	if _, err := asn1.Unmarshal(issuer.FullBytes, &rdns); err != nil {
+		return "", fmt.Errorf("parse issuer Name: %w", err)
+	}
+	for _, rdn := range rdns {
+		for _, atv := range rdn {
+			if !atv.Type.Equal(oidTrustAnchorID) {
+				continue
+			}
+			if atv.Value.Class != asn1.ClassUniversal || atv.Value.Tag != asn1TagRelativeOID {
+				return "", fmt.Errorf("trustAnchorID attribute is not a RELATIVE-OID (class %d, tag %d)", atv.Value.Class, atv.Value.Tag)
+			}
+			return decodeRelativeOID(atv.Value.Bytes)
 		}
 	}
 	return "", fmt.Errorf("trustAnchorID attribute not found in issuer DN")
+}
+
+// decodeRelativeOID renders RELATIVE-OID content octets (base-128 arcs) in
+// dotted form.
+func decodeRelativeOID(b []byte) (string, error) {
+	if len(b) == 0 {
+		return "", fmt.Errorf("empty RELATIVE-OID")
+	}
+	var arcs []string
+	var v uint64
+	inArc := false
+	for _, c := range b {
+		if !inArc && c == 0x80 {
+			return "", fmt.Errorf("RELATIVE-OID arc has a leading 0x80 byte")
+		}
+		if v > (1<<64-1)>>7 {
+			return "", fmt.Errorf("RELATIVE-OID arc overflows uint64")
+		}
+		v = v<<7 | uint64(c&0x7f)
+		inArc = c&0x80 != 0
+		if !inArc {
+			arcs = append(arcs, fmt.Sprint(v))
+			v = 0
+		}
+	}
+	if inArc {
+		return "", fmt.Errorf("RELATIVE-OID ends mid-arc")
+	}
+	return strings.Join(arcs, "."), nil
 }
 
 func buildCAPropertiesBlock(caID string) ([]byte, error) {

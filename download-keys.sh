@@ -8,12 +8,14 @@ if [[ ! -f "$DEPLOY_DIR/config.sh" ]]; then
   exit 1
 fi
 source "$DEPLOY_DIR/config.sh"
+CA_SEED_SECRET="${CA_SEED_SECRET:-ca1-draft07-cosigner-seed}"
+MIRROR_SEED_SECRET="${MIRROR_SEED_SECRET:-mirror1-draft07-cosigner-seed}"
 
 KEYS_DIR="$HOME/src/cactus-keys-from-gcp"
 mkdir -p "$KEYS_DIR"
 
-echo "==> Downloading keys from Secret Manager to $KEYS_DIR..."
-gcloud secrets versions access latest --secret=ca1-cosigner-seed     --project="$PROJECT" --out-file="$KEYS_DIR/ca-cosigner.seed"
-gcloud secrets versions access latest --secret=mirror1-cosigner-seed --project="$PROJECT" --out-file="$KEYS_DIR/mirror-cosigner.seed"
+echo "==> Downloading $CA_SEED_SECRET and $MIRROR_SEED_SECRET to $KEYS_DIR..."
+gcloud secrets versions access latest --secret="$CA_SEED_SECRET"     --project="$PROJECT" --out-file="$KEYS_DIR/ca-cosigner.seed"
+gcloud secrets versions access latest --secret="$MIRROR_SEED_SECRET" --project="$PROJECT" --out-file="$KEYS_DIR/mirror-cosigner.seed"
 chmod 600 "$KEYS_DIR"/*
 
